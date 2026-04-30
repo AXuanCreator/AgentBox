@@ -116,8 +116,8 @@ def _generate_session_id():
 
 def _init_llm():
     return ChatOpenAI(
-        model='[DS] Deepseek V4 Flash',
-        base_url='https://newapi.axuan.online/v1',
+        model=str(os.getenv("CHAT_MODEL")),
+        base_url=str(os.getenv("BASE_URL")),
         api_key=os.getenv("API_KEY"),  # type: ignore
         temperature=0.7,
         timeout=600,
