@@ -7,11 +7,13 @@
 
 ```
 AgentBox/
-├── agent.py                    # 主入口：Agent 初始化与交互循环
-├── sheet_processing/
+├── agent.py                    # 主入口：Agent 初始化、会话管理与交互循环
+├── core/
 │   ├── __init__.py             # 包标记
-│   ├── tools.py                # LangChain 工具注册（7 个工具）
-│   └── utils.py                # 底层数据处理逻辑（pandas）
+│   ├── sheet_tools.py          # 表格处理工具注册
+│   ├── sheet_utils.py          # 底层表格数据处理逻辑
+│   ├── tools.py                # 通用工具注册
+│   └── utils.py                # 通用工具底层逻辑
 ├── .env                        # 环境变量配置
 ├── .gitignore                  # Git 忽略规则
 └── README.md                   # 项目说明
@@ -27,20 +29,24 @@ AgentBox/
 ### 安装依赖
 
 ```bash
-pip install langchain langchain-openai langchain-community langchain-classic langgraph
-pip install pandas pymongo redis python-dotenv
+pip install langchain langchain-openai langchain-deepseek langchain-community langchain-classic langgraph
+pip install pandas pymongo python-dotenv
 pip install questionary rich openpyxl
 ```
-
+注意： 需要按照该[issue](https://github.com/langchain-ai/langchain/issues/37174)来改动langchain-deepseek(v1.0.1)的`_get_request_payload`。目前该包会导致`Missing reasoning_content`
+`问题。
 ### 配置环境变量
 
 编辑 `.env` 文件，填入以下配置：
 
 ```env
-# LLM API
+# LLM API（DeepSeek）
 CHAT_MODEL=your_model_name_here
 BASE_URL=your_base_url_here
 API_KEY=your_api_key_here
+
+# 总结模型（OpenAI 兼容，用于会话历史总结）
+SUMMARY_MODEL=your_summary_model_here
 
 # MongoDB（会话记忆）
 MONGO_SHORTMEMORY_URL=mongodb://user:password@host:port
@@ -55,10 +61,19 @@ LANGCHAIN_PROJECT=agentbox
 ### 运行
 
 ```bash
+# 普通模式
 python agent.py
+
+# 调试模式（使用普通 print 输出，跳过 questionary 交互，用于在IDE中调试）
+python agent.py --debug
 ```
 
 启动后进入交互式命令行，输入 `exit` 退出。
+
+**会话管理：**
+- 输入 `/session` 列出并选择历史会话进行恢复
+- 输入 `/session <session_id>` 直接切换到指定会话（格式：`yyyymmdd-xxxxxxxx`），并且会触发消息总结
+- 退出时自动保存当前会话，下次可通过 `/session` 恢复
 
 ## 使用示例
 
@@ -71,17 +86,9 @@ python agent.py
 
 > 查看 sales.csv 的第 1 到 10 行，按销售额降序排列
 
+> 获取当前会话的历史消息
+
+> /session 20260507-db733ff4
+
 > exit
 ```
-
-## 可用工具
-
-| 工具 | 功能 |
-|------|------|
-| `tool_get_csv_excel_path` | 扫描目录获取所有 CSV/Excel 文件路径 |
-| `tool_get_columns` | 获取文件的列名（表头） |
-| `tool_get_columns_content` | 获取指定列的全部内容 |
-| `tool_count_value_in_column` | 统计指定值在列中出现的次数 |
-| `tool_get_row_content` | 按行号获取数据内容 |
-| `tool_count_data_rows` | 统计数据行数（不含表头） |
-| `tool_calculate_add` | 对数字列表求和 |

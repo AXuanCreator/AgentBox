@@ -10,6 +10,7 @@ import sys
 import re
 import json
 import warnings
+import argparse
 from typing import List, Dict, Union, cast, Literal
 
 import redis
@@ -27,10 +28,11 @@ from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 from langchain.agents import create_agent
 from langchain_classic.agents import AgentExecutor
 from langchain_classic.schema.runnable import configurable
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessageChunk, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessageChunk, ToolMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
 from langchain_core.tools import tool
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables import RunnableConfig
@@ -41,14 +43,15 @@ from langchain.messages import AIMessageChunk
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.checkpoint.mongodb import MongoDBSaver
 
-import sheet_processing.tools as tools_module
+import core.sheet_tools as sheet_tools_module
+import core.tools as universal_tools_module
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 dotenv_path = ".env"
 load_dotenv(dotenv_path=dotenv_path, override=True)
 console = Console()
 
-sp = """你是一个文档处理助手。请严格遵守以下规则：
+sp = """你是一个文档处理助手，具备上下文记忆功能。请严格遵守以下规则：
 1. **调用工具的前提**：只有当用户明确要求处理csv或excel文件时，才可以调用工具
 2. **不调用工具的情况**：如果用户只是闲聊、询问与文件处理无关的问题，直接回答，不要调用任何工具
 3. **调用前确认**：在调用工具前，必须明确知道用户想处理哪个具体文件、处理文件的什么内容
@@ -107,7 +110,9 @@ def _plain_display_tool(tool_name: str, tool_args: dict, token_usage: dict = Non
     print(f"\n\n*Token: {token_usage['total_tokens']}({token_usage['input_tokens']}/{token_usage['output_tokens']}) Total：{total_token}*")
 
 
-def _init_display():
+def _init_display(debug: bool = False):
+    if debug:
+        return _plain_display_message, _plain_display_tool
     use_rich = _is_rich_available()
     return (
         _rich_display_message if use_rich else _plain_display_message,
@@ -116,88 +121,53 @@ def _init_display():
 
 
 class AgentBox:
-    def __init__(self, db: str = 'mongodb'):
-        self.llm = ChatOpenAI(
-            model=str(os.getenv("CHAT_MODEL")),
-            base_url=str(os.getenv("BASE_URL")),
-            api_key=os.getenv("API_KEY"),  # type: ignore
-            temperature=0.7,
-            timeout=600,
-        )
-
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        # agent
         self.tools = [
-            tools_module.tool_get_csv_excel_path,
-            tools_module.tool_get_columns,
-            tools_module.tool_get_columns_content,
-            tools_module.tool_count_value_in_column,
-            tools_module.tool_calculate_add,
-            tools_module.tool_get_row_content,
-            tools_module.tool_count_data_rows,
+            sheet_tools_module.tool_get_csv_excel_path,
+            sheet_tools_module.tool_get_columns,
+            sheet_tools_module.tool_get_columns_content,
+            sheet_tools_module.tool_count_value_in_column,
+            sheet_tools_module.tool_calculate_add,
+            sheet_tools_module.tool_get_row_content,
+            sheet_tools_module.tool_count_data_rows,
+            universal_tools_module.tool_get_history,
         ]
-
-        self.checkpointer = self._init_checkpointer(db)
-        self.display_message, self.display_tool = _init_display()
         self.session_id = self._generate_session_id()
+        self.session_checkpointer = self._init_checkpointer("mongodb")
         self.config = RunnableConfig(configurable={"thread_id": self.session_id})
 
-        self.history_summarize = SummarizationMiddleware(
-            model=self.llm,
-            trigger=cast(tuple[Literal["tokens"], int], ("tokens", 20000)),
-            keep=cast(tuple[Literal["messages"], int], ("messages", 10)),
-        )
+        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        self.summary_llm = self._build_llm_openai(os.getenv("SUMMARY_MODEL"))  # 无提示词，无记忆的总结普通llm
+        # self.history_summarize = SummarizationMiddleware(
+        #     model=self._build_llm(os.getenv("SUMMARY_MODEL")),
+        #     trigger=cast(tuple[Literal["tokens"], int], ("tokens", 20)),
+        #     keep=cast(tuple[Literal["messages"], int], ("messages", 4)),
+        # )
 
-        self.agent = self._build_agent()
-
+        self.display_message, self.display_tool = _init_display(debug=self.debug)
         self.total_token = 0
 
         # db
         self.mongodb_collection = self._init_db(db='mongodb')  # 会话记忆数据库
 
-    def _build_agent(self):
-        return create_agent(
-            model=self.llm,
-            tools=self.tools,
-            system_prompt=sp,
-            # middleware=[self.history_summarize],
-            checkpointer=self.checkpointer,
-        )
-
-    def _generate_session_id(self):
-        """生成带日期的sessionid"""
-        date_part = datetime.now().strftime("%Y%m%d")
-        random_part = uuid.uuid4().hex[:8]
-        return f"{date_part}-{random_part}"
-
-    def _check_session_id(session_id: str):
-        """检查是否为正确的sessionid"""
-        pattern = r'^\d{8}-[0-9a-f]{8}$'
-        return bool(re.fullmatch(pattern, session_id))
-
-    def _init_checkpointer(self, db: str):
-        if db == "mongodb":
-            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
-            return MongoDBSaver(mongodb_client, db_name='agentbox')
-        # elif db == "redis":
-        #     return RedisSaver(redis_url=str(os.getenv("REDIS_SHORTMEMORY_URL")))
+    def _print(self, content: str):
+        """根据 debug 模式输出文本"""
+        if self.debug:
+            clean = re.sub(r'\[/?\w+[^\]]*\]', '', content)
+            print(clean)
         else:
-            raise ValueError("暂不支持其他数据库")
+            console.print(content)
 
-    def _init_db(self, db: str = 'mongodb'):
-        if db == "mongodb":
-            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
-            _db = mongodb_client["agentbox"]
-            return _db["checkpoints"]
-        raise ValueError("暂不支持其他数据库")
-
-    def _get_session_ids(self):
-        """从会话记忆数据库中获取所有符合条件的sessionid"""
-        cursor = self.mongodb_collection.find({}, {"thread_id": 1, "_id": 0})
-        pattern = re.compile(r'^\d{8}-')
-        return list(set([
-            doc["thread_id"]
-            for doc in cursor
-            if "thread_id" in doc and pattern.match(doc["thread_id"])
-        ]))
+    def _print_panel(self, content: str, title: str = "", border_style: str = ""):
+        """根据 debug 模式输出 Panel"""
+        if self.debug:
+            print(f"\n── {title} ──")
+            print(content)
+            print()
+        else:
+            console.print(Panel(content, title=title, border_style=border_style, expand=False, padding=(1, 2)))
 
     def _check_session_id_available(self, session_id: str):
         """检查该sessionid是否存在于数据库中"""
@@ -209,7 +179,7 @@ class AgentBox:
     def _select_session(self):
         session_ids = self._get_session_ids()
         if not session_ids:
-            console.print(Panel("没有找到历史会话", title="📋 会话列表", border_style="yellow"))
+            self._print_panel("没有找到历史会话", title="📋 会话列表", border_style="yellow")
             return None
 
         groups: Dict[str, list] = {}
@@ -248,54 +218,156 @@ class AgentBox:
             for tc in latest_message.tool_calls:
                 self.display_tool(tc['name'], tc['args'], token_usage, self.total_token)
 
+    def _get_session_ids(self):
+        """从会话记忆数据库中获取所有符合条件的sessionid"""
+        cursor = self.mongodb_collection.find({}, {"thread_id": 1, "_id": 0})
+        pattern = re.compile(r'^\d{8}-')
+        return list(set([
+            doc["thread_id"]
+            for doc in cursor
+            if "thread_id" in doc and pattern.match(doc["thread_id"])
+        ]))
+
+    def _summarize_history(self, messages: list, retain: int = 4):
+        """总结历史消息"""
+        msg_str = self._format_messages_to_str(messages)
+        summary_prompt = ChatPromptTemplate.from_messages([
+            ("system", "请将以下对话历史总结为简洁的摘要，保留关键信息"),
+            ("human", "{messages_str}")
+        ])
+
+        summary_chain = summary_prompt | self.summary_llm | StrOutputParser()
+        summary_text = summary_chain.invoke({'messages_str': msg_str})
+
+        return summary_text
+
     def run(self):
         while True:
-            try:
-                user_input = questionary.text(">", multiline=True).ask()
-            except Exception:
+            if self.debug:
                 user_input = input("> ")
+            else:
+                user_input = questionary.text(">", multiline=True).ask()
 
             if user_input in ['exit', 'exit\n', 'quit', 'quit\n']:
-                console.print(Panel(
-                    f"本次会话已保存，可通过/session或/session session_id来恢复会话记忆",
+                self._print_panel(
+                    f"本次会话已保存，可通过/session或/session {self.config['configurable']['thread_id']}来恢复会话记忆",
                     title=f"会话保存 {self.config['configurable']['thread_id']}",
                     border_style="dark_red",
-                ))
+                )
                 sys.exit()
 
             elif re.search(r"/session( [\w-]+)?$", user_input):
                 if user_input == "/session":
+                    if self.debug:
+                        self._print(f"调试模式不支持使用session选择器，请直接输入特定session_id:\n{self._get_session_ids()}")
+                        continue
                     selected = self._select_session()
                 else:
                     selected = user_input.split(" ")[-1]
                 if not self._check_session_id(str(selected)):
-                    console.print("[bold red]输入的session_id格式错误[/bold red]，正确格式为 [green]yyyymmdd-12345678[/green]")
+                    self._print("[bold red]输入的session_id格式错误[/bold red]，正确格式为 [green]yyyymmdd-12345678[/green]")
                     continue
                 if selected:
                     if not self._check_session_id_available(str(selected)):
-                        console.print("[bold red]该session_id不存在，请检查后重试[/bold red]")
+                        self._print("[bold red]该session_id不存在，请检查后重试[/bold red]")
                         continue
                     self.config["configurable"]["thread_id"] = selected
-                    self.agent = self._build_agent()  # 重新构建agent以读取历史记录
-                    console.print(Panel(
-                        f"已切换到会话: {selected}",
+                    self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)  # 重新构建agent以读取历史记录
+                    history_message = self.chat_agent.get_state(self.config).values["messages"]
+                    history_summary = self._summarize_history(history_message)
+                    self._print_panel(
+                        f"已切换到会话: [green]{selected}[/green]\n过往消息总结: {history_summary}\n可通过/history查询历史消息",
                         title="✅ 会话切换",
                         border_style="green",
-                    ))
+                    )
                 continue
 
-            for chunk in self.agent.stream(
+            for chunk in self.chat_agent.stream(
                 input={"messages": [{"role": "user", "content": user_input}]},
                 config=self.config,
                 stream_mode="values",
             ):
                 self._process_stream_chunk(chunk)
 
+    @staticmethod
+    def _build_llm_openai(model_name):
+        """适用于openai格式，且不带reason_content（非思考模式）的llm"""
+        return ChatOpenAI(
+            model=str(model_name),
+            base_url=str(os.getenv("BASE_URL")),
+            api_key=os.getenv("API_KEY"),  # type: ignore
+            temperature=0.7,
+            timeout=600,
+        )
 
-def main():
-    agent_box = AgentBox()
+    @staticmethod
+    def _build_agent(llm, tools=None, system_prompt=None, checkpointer=None):
+        return create_agent(
+            model=llm,
+            tools=tools,
+            system_prompt=system_prompt,
+            # middleware=[self.history_summarize],
+            checkpointer=checkpointer,
+        )
+
+    @staticmethod
+    def _build_llm_deepseek(model_name):
+        """适用于deepseek模型"""
+        return ChatDeepSeek(
+            model=str(model_name),
+            api_base=str(os.getenv("BASE_URL")),
+            api_key=os.getenv("API_KEY"),
+            temperature=0.7,
+            timeout=600
+        )
+
+    @staticmethod
+    def _format_messages_to_str(messages):
+        return "\n".join([
+            f"{'Human' if isinstance(m, HumanMessage) else 'AI'}: {m.content}"
+            for m in messages
+        ])
+
+    @staticmethod
+    def _generate_session_id():
+        """生成带日期的sessionid"""
+        date_part = datetime.now().strftime("%Y%m%d")
+        random_part = uuid.uuid4().hex[:8]
+        return f"{date_part}-{random_part}"
+
+    @staticmethod
+    def _check_session_id(session_id: str):
+        """检查是否为正确的sessionid"""
+        pattern = r'^\d{8}-[0-9a-f]{8}$'
+        return bool(re.fullmatch(pattern, session_id))
+
+    @staticmethod
+    def _init_checkpointer(db: str):
+        if db == "mongodb":
+            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
+            return MongoDBSaver(mongodb_client, db_name='agentbox')
+        # elif db == "redis":
+        #     return RedisSaver(redis_url=str(os.getenv("REDIS_SHORTMEMORY_URL")))
+        else:
+            raise ValueError("暂不支持其他数据库")
+
+    @staticmethod
+    def _init_db(db: str = 'mongodb'):
+        if db == "mongodb":
+            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
+            _db = mongodb_client["agentbox"]
+            return _db["checkpoints"]
+        raise ValueError("暂不支持其他数据库")
+
+
+def main(args):
+    if args.debug:
+        print("已启动调试模式")
+    agent_box = AgentBox(debug=args.debug)
     agent_box.run()
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False, help="启用调试模式（使用普通 print 输出）")
+    main(parser.parse_args())

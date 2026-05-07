@@ -3,7 +3,7 @@
 from typing import List, Dict, Union
 from langchain.tools import tool, ToolRuntime
 
-import sheet_processing.utils as sheet_utils
+import core.sheet_utils as sheet_utils
 
 
 @tool
