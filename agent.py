@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 import pandas as pd
 import questionary
 from datetime import datetime
+
+from prompt_toolkit import key_binding
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -45,6 +47,7 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 
 import core.sheet_tools as sheet_tools_module
 import core.tools as universal_tools_module
+from keybinding import bindings_questionary
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 dotenv_path = ".env"
@@ -178,6 +181,7 @@ class AgentBox:
 
     def _select_session(self):
         session_ids = self._get_session_ids()
+        recent5 = "recent_5_sessions"
         if not session_ids:
             self._print_panel("没有找到历史会话", title="📋 会话列表", border_style="yellow")
             return None
@@ -186,18 +190,46 @@ class AgentBox:
         for sid in sorted(session_ids, reverse=True):
             date_part = sid[:8]
             groups.setdefault(date_part, []).append(sid)
+        groups.setdefault(recent5, []).extend(sorted(session_ids, reverse=True)[:5])
 
-        choices = []
-        for date_part, ids in groups.items():
+        self._print('[green]↑↓[/green]选择，[yellow]Enter[/yellow]确认，[red]Ctrl+C[/red]取消')
+
+        # 一级选择页（最近+日期）
+        first_choices = [questionary.Choice(
+            title=f"最近5个会话",
+            value=recent5
+        )]
+        for date_part in groups:
+            if date_part == recent5:
+                continue
             formatted_date = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
-            choices.append(questionary.Separator(f"── {formatted_date} ──"))
-            for sid in ids:
-                choices.append(questionary.Choice(title=f"  {sid}", value=sid))
+            first_choices.append(questionary.Choice(
+                title=f"{formatted_date} ({len(groups[date_part])} 个会话)",
+                value=date_part
+            ))
+
+        first_selected = questionary.select(
+            "选择日期",
+            choices=first_choices,
+            use_indicator=True,
+            instruction=''
+        ).ask()
+
+        if first_selected is None:
+            return None
+
+        # 二级选择页（会话）
+        sessions_by_selected = groups[first_selected]
+        session_choices = [
+            questionary.Choice(title=f"  {sid}", value=sid)
+            for sid in sessions_by_selected
+        ]
 
         return questionary.select(
-            "选择要恢复的会话（↑↓ 选择，回车确认，Esc 取消）",
-            choices=choices,
+            f"选择 {first_selected} 下的会话",
+            choices=session_choices,
             use_indicator=True,
+            instruction=''
         ).ask()
 
     def _process_stream_chunk(self, chunk):
@@ -246,11 +278,18 @@ class AgentBox:
             if self.debug:
                 user_input = input("> ")
             else:
-                user_input = questionary.text(">", multiline=True).ask()
+                user_input = questionary.text(
+                    ">",
+                    multiline=True,
+                    key_bindings=bindings_questionary,
+                    qmark="(ENTER 发送，CTRL+J 换行)\n",
+                    instruction=""
+                ).ask()
+            user_input = re.sub(r'\n+', '\n', user_input).strip('\n')  # 去除末尾所有换行符
 
             if user_input in ['exit', 'exit\n', 'quit', 'quit\n']:
                 self._print_panel(
-                    f"本次会话已保存，可通过/session或/session {self.config['configurable']['thread_id']}来恢复会话记忆",
+                    f"本次会话已保存，可通过[bright_blue]/session[/bright_blue]或[bright_blue]/session {self.config['configurable']['thread_id']}[/bright_blue]来恢复会话",
                     title=f"会话保存 {self.config['configurable']['thread_id']}",
                     border_style="dark_red",
                 )
@@ -276,11 +315,25 @@ class AgentBox:
                     history_message = self.chat_agent.get_state(self.config).values["messages"]
                     history_summary = self._summarize_history(history_message)
                     self._print_panel(
-                        f"已切换到会话: [green]{selected}[/green]\n过往消息总结: {history_summary}\n可通过/history查询历史消息",
+                        f"已切换到会话: [green]{selected}[/green]\n过往消息总结: {history_summary}\n\n[dim]可通过[bright_blue]/history[/bright_blue]或直接咨询来查询历史消息[/dim]",
                         title="✅ 会话切换",
                         border_style="green",
                     )
                 continue
+
+            elif user_input in ["/history"]:
+                history_message = self.chat_agent.get_state(self.config).values.get("messages", "")
+                if history_message:
+                    history_message_format = self._format_messages_to_str(messages=history_message, cut=True, style=True)
+                    self._print_panel(
+                        f"{history_message_format}",
+                        title="🕛 历史消息",
+                        border_style="violet",
+                    )
+                    continue
+                else:
+                    self._print("[bold red]当前会话不存在任何历史消息[/bold red]")
+                    continue
 
             for chunk in self.chat_agent.stream(
                 input={"messages": [{"role": "user", "content": user_input}]},
@@ -322,11 +375,18 @@ class AgentBox:
         )
 
     @staticmethod
-    def _format_messages_to_str(messages):
-        return "\n".join([
-            f"{'Human' if isinstance(m, HumanMessage) else 'AI'}: {m.content}"
-            for m in messages
-        ])
+    def _format_messages_to_str(messages, cut: bool = False, style: bool = False):
+        lines = []
+        for m in messages:
+            if style:
+                role = '[bold blue]Human[/bold blue]' if isinstance(m, HumanMessage) else '[bold yellow]AI[/bold yellow]'
+            else:
+                role = 'Human' if isinstance(m, HumanMessage) else 'AI'
+            content = str(m.content).replace('\n', '')
+            if cut:
+                content = (content[:100] + '...') if len(content) > 100 else content
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
 
     @staticmethod
     def _generate_session_id():

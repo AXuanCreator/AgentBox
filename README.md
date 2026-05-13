@@ -64,7 +64,7 @@ LANGCHAIN_PROJECT=agentbox
 # 普通模式
 python agent.py
 
-# 调试模式（使用普通 print 输出，跳过 questionary 交互，用于在IDE中调试）
+# 调试模式（使用普通 print 输出，用于在IDE中调试）
 python agent.py --debug
 ```
 
