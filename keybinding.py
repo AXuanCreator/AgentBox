@@ -15,3 +15,8 @@ def submit(event):
 @bindings_questionary.add('c-j')
 def newline(event):
     event.app.current_buffer.insert_text("\n")
+
+
+# @bindings_questionary.add('?')
+# def command_support(event):
+#     event.app.exit(result='!showCommand')

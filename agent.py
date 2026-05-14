@@ -20,7 +20,9 @@ import pandas as pd
 import questionary
 from datetime import datetime
 
-from prompt_toolkit import key_binding
+from prompt_toolkit import key_binding, prompt
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -143,12 +145,14 @@ class AgentBox:
 
         self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
         self.summary_llm = self._build_llm_openai(os.getenv("SUMMARY_MODEL"))  # 无提示词，无记忆的总结普通llm
-        # self.history_summarize = SummarizationMiddleware(
-        #     model=self._build_llm(os.getenv("SUMMARY_MODEL")),
-        #     trigger=cast(tuple[Literal["tokens"], int], ("tokens", 20)),
-        #     keep=cast(tuple[Literal["messages"], int], ("messages", 4)),
-        # )
 
+        # display/input
+        self.command_completer = WordCompleter(["/session", "/history", "/exit", "exit"], ignore_case=True, WORD=True)
+        self.command_style = Style([
+            ('completion-menu', 'fg:black bg:#cccccc'),
+            ('completion-menu.completion.current', 'fg:white bg:blue'),  # 选中项颜色
+            ('bottom-toolbar',         'fg:#aaaaaa noreverse'),
+        ])
         self.display_message, self.display_tool = _init_display(debug=self.debug)
         self.total_token = 0
 
@@ -192,7 +196,7 @@ class AgentBox:
             groups.setdefault(date_part, []).append(sid)
         groups.setdefault(recent5, []).extend(sorted(session_ids, reverse=True)[:5])
 
-        self._print('[green]↑↓[/green]选择，[yellow]Enter[/yellow]确认，[red]Ctrl+C[/red]取消')
+        self._print('[green]↑↓[/green] 选择，[yellow]Enter[/yellow]确认，[red]Ctrl+C[/red]取消')
 
         # 一级选择页（最近+日期）
         first_choices = [questionary.Choice(
@@ -278,16 +282,17 @@ class AgentBox:
             if self.debug:
                 user_input = input("> ")
             else:
-                user_input = questionary.text(
+                user_input = prompt(
                     ">",
                     multiline=True,
                     key_bindings=bindings_questionary,
-                    qmark="(ENTER 发送，CTRL+J 换行)\n",
-                    instruction=""
-                ).ask()
+                    bottom_toolbar="(ENTER 发送，CTRL+J 换行)",
+                    completer=self.command_completer,
+                    style=self.command_style
+                )
             user_input = re.sub(r'\n+', '\n', user_input).strip('\n')  # 去除末尾所有换行符
 
-            if user_input in ['exit', 'exit\n', 'quit', 'quit\n']:
+            if user_input in ['exit', 'exit\n', '/exit', 'quit', 'quit\n']:
                 self._print_panel(
                     f"本次会话已保存，可通过[bright_blue]/session[/bright_blue]或[bright_blue]/session {self.config['configurable']['thread_id']}[/bright_blue]来恢复会话",
                     title=f"会话保存 {self.config['configurable']['thread_id']}",
