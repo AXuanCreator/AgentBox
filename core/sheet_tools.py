@@ -88,3 +88,15 @@ def tool_count_data_rows(dir_path: str) -> str:
     :return: str：行数、错误或警告信息
     """
     return sheet_utils.count_data_rows(dir_path=dir_path)
+
+
+@tool
+def tool_write_to_table(data: list[list[str]], file_path: str, columns: list = None) -> str:
+    """
+    将特定内容全新写入或追加到指定的xlsx中
+    :param data: 数据行，形式应为 [[数据1, 数据2, 数据3], [数据4, 数据5, 数据6]]，注意每一行的长度应当与columns长度一致
+    :param file_path: 表格路径，支持csv或xlsx，若为全新写入类型的任务，优先使用xlsx
+    :param columns:表格的表头，形式应为 [列名1, 列名2, 列名3]，注意应当与data中每一行的长度一致
+    :return: 成功或错误信息
+    """
+    return sheet_utils.write_to_table(data=data, file_path=file_path, columns=columns)

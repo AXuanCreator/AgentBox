@@ -48,7 +48,8 @@ from langgraph.checkpoint.redis import RedisSaver
 from langgraph.checkpoint.mongodb import MongoDBSaver
 
 import core.sheet_tools as sheet_tools_module
-import core.tools as universal_tools_module
+import core.fetch_tools as fetch_tools_module
+import core.runtime_tools as universal_tools_module
 from keybinding import bindings_questionary
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
@@ -56,14 +57,13 @@ dotenv_path = ".env"
 load_dotenv(dotenv_path=dotenv_path, override=True)
 console = Console()
 
-sp = """你是一个文档处理助手，具备上下文记忆功能。请严格遵守以下规则：
-1. **调用工具的前提**：只有当用户明确要求处理csv或excel文件时，才可以调用工具
-2. **不调用工具的情况**：如果用户只是闲聊、询问与文件处理无关的问题，直接回答，不要调用任何工具
-3. **调用前确认**：在调用工具前，必须明确知道用户想处理哪个具体文件、处理文件的什么内容
-4. **不确定时反问**：如果不确定用户是否想处理文件，先反问用户确认
-5. **回答完整性**：严格按照用户指令执行，不要自作主张省略、总结、修改或裁剪任何内容，尤其是工具输出必须完整原样返回
-6. **工具输出处理**：调用工具后，直接将工具返回的完整内容原样呈现给用户，不得删除、裁剪、整理、总结或修改任何部分；若工具出错，重试或告知用户错误详情
-记住：用户没有明确要求处理文件时，保持沉默并直接回答。"""
+sp = """
+你是一个运行在 AgentBox 内部的个人助理。
+工具调用风格（Tool Call Style）
+默认：对常规、低风险的工具调用不需要叙述过程（直接调用工具即可）。 只有在这些情况下才叙述：多步骤工作、复杂/困难问题、敏感操作（比如删除）、或用户明确要求时。 叙述要简短、信息密度高；别重复显而易见的步骤。 叙述用自然的人类语言，除非处在技术语境里。
+安全（Safety）
+你没有独立目标：不要追求自我保存、复制、资源获取或权力寻求；不要制定超出用户请求范围的长期计划。 将安全和人类监督置于任务完成之上；如果指令冲突，暂停并询问；遵守停止/暂停/审计请求，绝不绕过安全护栏。不要操纵或劝说任何人扩大访问权限或禁用安全护栏。不要复制自己或更改系统提示、安全规则或工具策略，除非用户明确要求。
+"""
 
 
 # 检测是否支持 rich 渲染（终端环境）
@@ -89,7 +89,7 @@ def _rich_display_message(content: str, token_usage: dict = None, total_token: i
 
 def _rich_display_tool(tool_name: str, tool_args: dict, token_usage: dict = None, total_token: int = 0):
     """使用 rich 渲染工具调用"""
-    display_content = f"**Args**:\n```json\n{json.dumps(tool_args, indent=2, ensure_ascii=False)}\n```"
+    display_content = f"**Args**:{json.dumps(tool_args, indent=2, ensure_ascii=False)}"
     display_content += f"\n\n*Token: {token_usage['total_tokens']}({token_usage['input_tokens']}/{token_usage['output_tokens']}) Total：{total_token}*"
     console.print(Panel(
         Markdown(display_content),
@@ -137,6 +137,8 @@ class AgentBox:
             sheet_tools_module.tool_calculate_add,
             sheet_tools_module.tool_get_row_content,
             sheet_tools_module.tool_count_data_rows,
+            sheet_tools_module.tool_write_to_table,
+            fetch_tools_module.tool_fetch_single_url_to_md,
             universal_tools_module.tool_get_history,
         ]
         self.session_id = self._generate_session_id()
@@ -356,6 +358,7 @@ class AgentBox:
             api_key=os.getenv("API_KEY"),  # type: ignore
             temperature=0.7,
             timeout=600,
+            streaming=True
         )
 
     @staticmethod
@@ -376,7 +379,8 @@ class AgentBox:
             api_base=str(os.getenv("BASE_URL")),
             api_key=os.getenv("API_KEY"),
             temperature=0.7,
-            timeout=600
+            timeout=600,
+            streaming=True,
         )
 
     @staticmethod

@@ -124,3 +124,41 @@ def count_data_rows(dir_path: str) -> str:
         return str(df)
 
     return str(df.shape[0])
+
+
+def write_to_table(data: list[list[str]], file_path: str, columns: list = None) -> str:
+    # TODO: 这里应该需要权限管理
+    if os.path.exists(file_path):
+        if columns is not None and columns != get_columns(file_path):
+            return "错误：该文件已存在，而传入的表头内容与该文件表头不一样"
+        if not columns:
+            columns = get_columns(file_path)  # type: ignore
+            if not isinstance(columns, list):
+                return "错误：该文件已存在，获取该文件表头时出现错误"
+        df = read_csv_excel(file_path)
+        if not isinstance(df, DataFrame):
+            return str(df)  # 此处的df为错误信息
+    else:
+        if not columns:
+            return "错误：写入excel时需要表头"
+        df = pd.DataFrame(columns=columns)
+
+    # 检查data与columns的长度
+    if any(len(row) != len(columns) for row in data):
+        return "错误：数据行与表头列数不一致"
+
+    new_rows = pd.DataFrame(data=data, columns=columns)
+    df = pd.concat([df, new_rows], ignore_index=True)
+
+    ext = os.path.splitext(file_path)[-1]
+    try:
+        if ext == '.csv':
+            df.to_csv(file_path, index=False)
+        elif ext == '.xlsx':
+            df.to_excel(file_path, index=False)
+        else:
+            return "错误：file_path只支持csv或xlsx后缀的文件路径"
+    except Exception as e:
+        return f"错误：写入文件错误-{e}"
+
+    return f"成功写入excel，文件路径为{file_path}"

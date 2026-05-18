@@ -3,7 +3,7 @@
 from typing import List, Dict, Union
 from langchain.tools import tool, ToolRuntime
 
-from core.utils import get_history
+from core.runtime_utils import get_history
 
 
 @tool
