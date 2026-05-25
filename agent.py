@@ -11,7 +11,6 @@ import re
 import json
 import warnings
 import argparse
-from typing import List, Dict, Union, cast, Literal
 
 import redis
 from dotenv import load_dotenv
@@ -192,7 +191,7 @@ class AgentBox:
             self._print_panel("没有找到历史会话", title="📋 会话列表", border_style="yellow")
             return None
 
-        groups: Dict[str, list] = {}
+        groups: dict[str, list] = {}
         for sid in sorted(session_ids, reverse=True):
             date_part = sid[:8]
             groups.setdefault(date_part, []).append(sid)
