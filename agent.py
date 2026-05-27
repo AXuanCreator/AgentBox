@@ -12,39 +12,27 @@ import json
 import warnings
 import argparse
 
-import redis
-from dotenv import load_dotenv
-
-import pandas as pd
 import questionary
-from datetime import datetime
+import sqlite3
 
-from prompt_toolkit import key_binding, prompt
+from datetime import datetime
+from dotenv import load_dotenv
+from prompt_toolkit import prompt
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from pymongo import MongoClient
-from langchain.agents.middleware import SummarizationMiddleware
-from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 from langchain.agents import create_agent
-from langchain_classic.agents import AgentExecutor
-from langchain_classic.schema.runnable import configurable
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessageChunk, ToolMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
-from langchain_core.tools import tool
-from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables import RunnableConfig
-from langchain_community.chat_message_histories import ChatMessageHistory, RedisChatMessageHistory
-from langgraph.checkpoint.memory import InMemorySaver
-from langchain.tools import tool, ToolRuntime
-from langchain.messages import AIMessageChunk
-from langgraph.checkpoint.redis import RedisSaver
 from langgraph.checkpoint.mongodb import MongoDBSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 import core.sheet_tools as sheet_tools_module
 import core.fetch_tools as fetch_tools_module
@@ -138,12 +126,13 @@ class AgentBox:
             sheet_tools_module.tool_count_data_rows,
             sheet_tools_module.tool_write_to_table,
             fetch_tools_module.tool_fetch_single_url_to_md,
+            fetch_tools_module.tool_search_online_by_query,
             universal_tools_module.tool_get_history,
         ]
+        self.db_type = 'sqlite'  # sqlite/mongodb
         self.session_id = self._generate_session_id()
-        self.session_checkpointer = self._init_checkpointer("mongodb")
+        self.session_checkpointer = self._init_checkpointer(self.db_type)  # 会话记忆数据库，由langchain管理，可选mongodb/sqlite
         self.config = RunnableConfig(configurable={"thread_id": self.session_id})
-
         self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
         self.summary_llm = self._build_llm_openai(os.getenv("SUMMARY_MODEL"))  # 无提示词，无记忆的总结普通llm
 
@@ -152,13 +141,13 @@ class AgentBox:
         self.command_style = Style([
             ('completion-menu', 'fg:black bg:#cccccc'),
             ('completion-menu.completion.current', 'fg:white bg:blue'),  # 选中项颜色
-            ('bottom-toolbar',         'fg:#aaaaaa noreverse'),
+            ('bottom-toolbar', 'fg:#aaaaaa noreverse'),
         ])
         self.display_message, self.display_tool = _init_display(debug=self.debug)
         self.total_token = 0
 
         # db
-        self.mongodb_collection = self._init_db(db='mongodb')  # 会话记忆数据库
+        self.db_collection = self._init_db(db=self.db_type)  # 会话记忆数据库，用于手动获取特定信息
 
     def _print(self, content: str):
         """根据 debug 模式输出文本"""
@@ -257,13 +246,18 @@ class AgentBox:
 
     def _get_session_ids(self):
         """从会话记忆数据库中获取所有符合条件的sessionid"""
-        cursor = self.mongodb_collection.find({}, {"thread_id": 1, "_id": 0})
+        if self.db_type == 'mongodb':
+            cursor = self.db_collection.find({}, {"thread_id": 1, "_id": 0})  # 这里的参数表示只要thread_id字段，而不需要_id字段，即返回数据库中所有thread_id内容
+            all_ids = [doc["thread_id"] for doc in cursor if "thread_id" in doc]
+        elif self.db_type == 'sqlite':
+            cursor = self.db_collection.execute("SELECT DISTINCT thread_id FROM checkpoints")  # 这里已做去重（DISTINCT）
+            rows = cursor.fetchall()
+            all_ids = [row[0] for row in rows if row[0]]
+        else:
+            raise ValueError(f"不支持该数据库类型: {self.db_type}")
+
         pattern = re.compile(r'^\d{8}-')
-        return list(set([
-            doc["thread_id"]
-            for doc in cursor
-            if "thread_id" in doc and pattern.match(doc["thread_id"])
-        ]))
+        return list(set([tid for tid in all_ids if pattern.match(tid)]))
 
     def _summarize_history(self, messages: list, retain: int = 4):
         """总结历史消息"""
@@ -414,8 +408,10 @@ class AgentBox:
         if db == "mongodb":
             mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
             return MongoDBSaver(mongodb_client, db_name='agentbox')
-        # elif db == "redis":
-        #     return RedisSaver(redis_url=str(os.getenv("REDIS_SHORTMEMORY_URL")))
+        elif db == "sqlite":
+            os.makedirs('./data', exist_ok=True)
+            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
+            return SqliteSaver(sqlite_client)
         else:
             raise ValueError("暂不支持其他数据库")
 
@@ -425,6 +421,9 @@ class AgentBox:
             mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
             _db = mongodb_client["agentbox"]
             return _db["checkpoints"]
+        elif db == "sqlite":
+            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
+            return sqlite_client
         raise ValueError("暂不支持其他数据库")
 
 
