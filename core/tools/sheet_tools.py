@@ -3,7 +3,7 @@
 from typing import Union
 from langchain.tools import tool
 
-import core.sheet_utils as sheet_utils
+import core.impl.sheet_impl as sheet_impl
 
 
 @tool
@@ -14,7 +14,7 @@ def tool_get_csv_excel_path(dir_path: str, depth: int = 1) -> dict:
     :param depth: 探索深度
     :return: dict：结果或错误信息
     """
-    return sheet_utils.get_csv_excel_path(dir_path, depth)
+    return sheet_impl.get_csv_excel_path(dir_path, depth)
 
 
 @tool
@@ -24,7 +24,7 @@ def tool_get_columns(dir_path: str) -> dict:
     :param dir_path: csv或excel的文件路径
     :return: dict：结果或错误信息
     """
-    return sheet_utils.get_columns(dir_path)
+    return sheet_impl.get_columns(dir_path)
 
 
 @tool
@@ -35,7 +35,7 @@ def tool_get_columns_content(dir_path: str, column: str) -> dict:
     :param column: 指定的表头字段名
     :return: dict：结果或错误信息
     """
-    return sheet_utils.get_columns_content(dir_path=dir_path, column=column)
+    return sheet_impl.get_columns_content(dir_path=dir_path, column=column)
 
 
 @tool
@@ -50,22 +50,22 @@ def tool_get_row_content(dir_path: str, row: list, sort_mode: str = None) -> dic
       示例: "id|desc"（id列降序）、"like|asc"（like列升序）。
     :return: dict：结果或错误信息
     """
-    return sheet_utils.get_row_content(dir_path, row, sort_mode)
+    return sheet_impl.get_row_content(dir_path, row, sort_mode)
 
 
 @tool
-def tool_count_value_in_column(dir_path: str, column: str, values: list[str]) -> dict:
+def tool_count_value_in_column(dir_path: str, column: str, value: Union[str, int, float]) -> dict:
     """
-    统计指定列中某个元素（value）出现的次数
-    :param dir_path: csv或excel的文件路径
-    :param column: 指定的表头字段名
-    :param values: 指定的元素名字列表
+    统计表格指定列中某个值出现了多少行（出现频次）。
+    适用于：想知道某个特定值在列中出现了多少次。
+    例如：「等级」列中 "优秀" 出现了几次 → value="优秀" → 返回 {"count": 12}
+
+    :param dir_path: 表格文件路径（csv或xlsx）
+    :param column: 要统计的列名
+    :param value: 要统计的具体值（字符串或数字）
     :return: dict：结果或错误信息
     """
-    result = {}
-    for value in values:
-        result[value] = sheet_utils.count_value_in_column(dir_path=dir_path, column=column, value=value)
-    return result
+    return sheet_impl.count_value_in_column(dir_path=dir_path, column=column, value=value)
 
 
 @tool
@@ -75,7 +75,7 @@ def tool_calculate_add(values: list[Union[int, float]]) -> dict:
     :param values: 元素列表，元素类型可为int或float
     :return: dict：结果或错误信息
     """
-    return sheet_utils.calculate_add(values=values)
+    return sheet_impl.calculate_add(values=values)
 
 
 @tool
@@ -85,7 +85,7 @@ def tool_count_data_rows(dir_path: str) -> dict:
     :param dir_path: csv或excel的文件路径
     :return: dict：结果或错误信息
     """
-    return sheet_utils.count_data_rows(dir_path=dir_path)
+    return sheet_impl.count_data_rows(dir_path=dir_path)
 
 
 @tool
@@ -97,4 +97,4 @@ def tool_write_to_table(data: list[list[str]], file_path: str, columns: list = N
     :param columns:表格的表头，形式应为 [列名1, 列名2, 列名3]，注意应当与data中每一行的长度一致
     :return: dict：结果或错误信息
     """
-    return sheet_utils.write_to_table(data=data, file_path=file_path, columns=columns)
+    return sheet_impl.write_to_table(data=data, file_path=file_path, columns=columns)

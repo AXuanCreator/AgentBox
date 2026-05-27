@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from langchain.tools import tool, ToolRuntime
 
-from core.runtime_utils import get_history
+from core.impl.runtime_impl import get_history
 
 
 @tool

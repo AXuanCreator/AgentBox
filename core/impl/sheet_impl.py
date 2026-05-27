@@ -87,7 +87,7 @@ def count_value_in_column(dir_path: str, column: str, value: Union[str, int, flo
     if not col_content['success']:
         return col_content
     col_count = col_content['data'].count(value)
-    return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"获取出现个数成功", data=col_count).model_dump()
+    return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"获取出现个数成功", data=str(col_count)).model_dump()
 
 
 def calculate_add(values: list[Union[int, float]]) -> dict:

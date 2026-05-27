@@ -15,7 +15,7 @@ load_dotenv(dotenv_path=dotenv_path, override=True)
 def fetch_single_url_to_md(url: str) -> dict:
     check_url = urlparse(url)
     if not check_url.scheme or not check_url.netloc:
-        raise ToolResponse(success=False, code=ResponseCode.URL_ERROR, message="URL格式错误", data=None).model_dump()
+        return ToolResponse(success=False, code=ResponseCode.URL_ERROR, message="URL格式错误", data=None).model_dump()
     try:
         firecrawl = Firecrawl(api_key=os.getenv("FIRECRAWL_API_KEY"))
         scrape_result = firecrawl.scrape(url, formats=['markdown'], remove_base64_images=True, only_main_content=True)
@@ -40,7 +40,7 @@ def search_online_by_query(query: str, limit: int = 5) -> dict:
         return ToolResponse(success=False, code=ResponseCode.GENERIC_ERROR, message=f"无搜索结果", data=None).model_dump()
 
     results_dict = {f'result_{idx}': {"url": item.url, "title": item.title, "description": item.description} for idx, item in enumerate(results)}
-    return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"获取单个URL页面内容成功", data=results_dict).model_dump()
+    return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"获取网络搜索内容成功", data=results_dict).model_dump()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import re
 import json
 import warnings
 import argparse
+from collections.abc import Callable
 
 import questionary
 import sqlite3
@@ -25,7 +26,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from pymongo import MongoClient
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessageChunk, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -34,9 +35,10 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-import core.sheet_tools as sheet_tools_module
-import core.fetch_tools as fetch_tools_module
-import core.runtime_tools as universal_tools_module
+import core.tools.sheet_tools as sheet_tools_module
+import core.tools.fetch_tools as fetch_tools_module
+import core.tools.runtime_tools as runtime_tools_module
+import core.tools.code_tools as code_tools_module
 from keybinding import bindings_questionary
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
@@ -70,7 +72,7 @@ def _rich_display_message(content: str, token_usage: dict = None, total_token: i
         title="🤖 Agent",
         border_style="cyan",
         expand=False,
-        padding=(1, 2)
+        padding=(0, 1)
     ))
 
 
@@ -83,7 +85,7 @@ def _rich_display_tool(tool_name: str, tool_args: dict, token_usage: dict = None
         title=f"🔧 Tool: {tool_name}",
         border_style="yellow",
         expand=False,
-        padding=(1, 2)
+        padding=(0, 1)
     ))
 
 
@@ -127,17 +129,28 @@ class AgentBox:
             sheet_tools_module.tool_write_to_table,
             fetch_tools_module.tool_fetch_single_url_to_md,
             fetch_tools_module.tool_search_online_by_query,
-            universal_tools_module.tool_get_history,
+            code_tools_module.tool_python_executor,
+            runtime_tools_module.tool_get_history,
         ]
         self.db_type = 'sqlite'  # sqlite/mongodb
+        self._command_handlers: dict[str, Callable[[str], bool]] = {
+            "/exit": self._handle_exit,
+            "exit": self._handle_exit,
+            "/session": self._handle_session,
+            "/history": self._handle_history,
+            "/clear": self._handle_clear,
+            "/new": self._handle_clear,
+        }
+        self.agent_command = list(self._command_handlers.keys())  # 快捷指令（“/”）
         self.session_id = self._generate_session_id()
-        self.session_checkpointer = self._init_checkpointer(self.db_type)  # 会话记忆数据库，由langchain管理，可选mongodb/sqlite
         self.config = RunnableConfig(configurable={"thread_id": self.session_id})
-        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        self.session_checkpointer = self._init_checkpointer(self.db_type)  # 会话记忆数据库，由langchain管理，可选mongodb/sqlite
+        self.db_collection = self._init_db(db=self.db_type)  # 会话记忆数据库，用于手动获取特定信息
+        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)  # 主agent
         self.summary_llm = self._build_llm_openai(os.getenv("SUMMARY_MODEL"))  # 无提示词，无记忆的总结普通llm
 
-        # display/input
-        self.command_completer = WordCompleter(["/session", "/history", "/exit", "exit"], ignore_case=True, WORD=True)
+        # enhance display
+        self.command_completer = WordCompleter(self.agent_command, ignore_case=True, WORD=True)
         self.command_style = Style([
             ('completion-menu', 'fg:black bg:#cccccc'),
             ('completion-menu.completion.current', 'fg:white bg:blue'),  # 选中项颜色
@@ -145,9 +158,6 @@ class AgentBox:
         ])
         self.display_message, self.display_tool = _init_display(debug=self.debug)
         self.total_token = 0
-
-        # db
-        self.db_collection = self._init_db(db=self.db_type)  # 会话记忆数据库，用于手动获取特定信息
 
     def _print(self, content: str):
         """根据 debug 模式输出文本"""
@@ -164,7 +174,7 @@ class AgentBox:
             print(content)
             print()
         else:
-            console.print(Panel(content, title=title, border_style=border_style, expand=False, padding=(1, 2)))
+            console.print(Panel(content, title=title, border_style=border_style, expand=False, padding=(0, 1)))
 
     def _check_session_id_available(self, session_id: str):
         """检查该sessionid是否存在于数据库中"""
@@ -272,6 +282,76 @@ class AgentBox:
 
         return summary_text
 
+    def _dispatch_command(self, user_input: str) -> bool:
+        """匹配/命令"""
+        for prefix, handler in self._command_handlers.items():
+            if user_input == prefix or user_input.startswith(prefix + " "):
+                return handler(user_input)
+        return False
+
+    def _handle_exit(self, _user_input: str) -> bool:
+        self._print_panel(
+            f"本次会话已保存，可通过[bright_blue]/session[/bright_blue]或[bright_blue]/session {self.config['configurable']['thread_id']}[/bright_blue]来恢复会话",
+            title=f"会话保存 {self.config['configurable']['thread_id']}",
+            border_style="dark_red",
+        )
+        sys.exit()
+
+    def _handle_session(self, user_input: str) -> bool:
+        parts = user_input.split(maxsplit=1)
+        if len(parts) == 1:
+            if self.debug:
+                self._print(f"调试模式不支持使用session选择器，请直接输入特定session_id:\n{self._get_session_ids()}")
+                return True
+            selected = self._select_session()
+        else:
+            selected = parts[1]
+
+        if not selected:
+            return True
+        if not self._check_session_id(str(selected)):
+            self._print("[bold red]输入的session_id格式错误[/bold red]，正确格式为 [green]yyyymmdd-12345678[/green]")
+            return True
+        if not self._check_session_id_available(str(selected)):
+            self._print("[bold red]该session_id不存在，请检查后重试[/bold red]")
+            return True
+
+        self.config["configurable"]["thread_id"] = selected
+        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        history_message = self.chat_agent.get_state(self.config).values["messages"]
+        # history_summary = self._summarize_history(history_message)
+        history_summary = "该功能正在维护..."  # TODO: 历史总结时长太长
+        self._print_panel(
+            f"已切换到会话: [green]{selected}[/green]\n过往消息总结: {history_summary}\n\n[dim]可通过[bright_blue]/history[/bright_blue]或直接咨询来查询历史消息[/dim]",
+            title="✅ 会话切换",
+            border_style="green",
+        )
+        return True
+
+    def _handle_history(self, _user_input: str) -> bool:
+        history_message = self.chat_agent.get_state(self.config).values.get("messages", "")
+        if history_message:
+            history_message_format = self._format_messages_to_str(messages=history_message, cut=True, style=True)
+            self._print_panel(
+                f"{history_message_format}",
+                title="🕛 历史消息",
+                border_style="violet",
+            )
+        else:
+            self._print("[bold red]当前会话不存在任何历史消息[/bold red]")
+        return True
+
+    def _handle_clear(self, _user_input: str) -> bool:
+        new_session = self._generate_session_id()
+        self.config["configurable"]["thread_id"] = new_session
+        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        self._print_panel(
+            f"已清除上下文并创建新会话: [green]{new_session}[/green]",
+            title="✅ 会话新建",
+            border_style="light_slate_grey",
+        )
+        return True
+
     def run(self):
         while True:
             if self.debug:
@@ -286,61 +366,16 @@ class AgentBox:
                     style=self.command_style
                 )
             user_input = re.sub(r'\n+', '\n', user_input).strip('\n')  # 去除末尾所有换行符
-
-            if user_input in ['exit', 'exit\n', '/exit', 'quit', 'quit\n']:
-                self._print_panel(
-                    f"本次会话已保存，可通过[bright_blue]/session[/bright_blue]或[bright_blue]/session {self.config['configurable']['thread_id']}[/bright_blue]来恢复会话",
-                    title=f"会话保存 {self.config['configurable']['thread_id']}",
-                    border_style="dark_red",
-                )
-                sys.exit()
-
-            elif re.search(r"/session( [\w-]+)?$", user_input):
-                if user_input == "/session":
-                    if self.debug:
-                        self._print(f"调试模式不支持使用session选择器，请直接输入特定session_id:\n{self._get_session_ids()}")
-                        continue
-                    selected = self._select_session()
-                else:
-                    selected = user_input.split(" ")[-1]
-                if not self._check_session_id(str(selected)):
-                    self._print("[bold red]输入的session_id格式错误[/bold red]，正确格式为 [green]yyyymmdd-12345678[/green]")
-                    continue
-                if selected:
-                    if not self._check_session_id_available(str(selected)):
-                        self._print("[bold red]该session_id不存在，请检查后重试[/bold red]")
-                        continue
-                    self.config["configurable"]["thread_id"] = selected
-                    self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)  # 重新构建agent以读取历史记录
-                    history_message = self.chat_agent.get_state(self.config).values["messages"]
-                    history_summary = self._summarize_history(history_message)
-                    self._print_panel(
-                        f"已切换到会话: [green]{selected}[/green]\n过往消息总结: {history_summary}\n\n[dim]可通过[bright_blue]/history[/bright_blue]或直接咨询来查询历史消息[/dim]",
-                        title="✅ 会话切换",
-                        border_style="green",
-                    )
+            
+            if self._dispatch_command(user_input):
                 continue
 
-            elif user_input in ["/history"]:
-                history_message = self.chat_agent.get_state(self.config).values.get("messages", "")
-                if history_message:
-                    history_message_format = self._format_messages_to_str(messages=history_message, cut=True, style=True)
-                    self._print_panel(
-                        f"{history_message_format}",
-                        title="🕛 历史消息",
-                        border_style="violet",
-                    )
-                    continue
-                else:
-                    self._print("[bold red]当前会话不存在任何历史消息[/bold red]")
-                    continue
-
             for chunk in self.chat_agent.stream(
-                input={"messages": [{"role": "user", "content": user_input}]},
-                config=self.config,
-                stream_mode="values",
-            ):
-                self._process_stream_chunk(chunk)
+                    input={"messages": [{"role": "user", "content": user_input}]},
+                    config=self.config,
+                    stream_mode="values",
+                ):
+                    self._process_stream_chunk(chunk)
 
     @staticmethod
     def _build_llm_openai(model_name):

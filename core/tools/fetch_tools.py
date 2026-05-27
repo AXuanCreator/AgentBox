@@ -1,9 +1,9 @@
 #!/user/bin/env python3
 # -*- coding: utf-8 -*-
 
-from langchain.tools import tool, ToolRuntime
+from langchain.tools import tool
 
-from core import fetch_utils
+from core.impl import fetch_impl
 
 
 @tool
@@ -13,7 +13,7 @@ def tool_fetch_single_url_to_md(url: str) -> dict:
     :param url: 指定网址
     :return: dict：结果或错误信息
     """
-    return fetch_utils.fetch_single_url_to_md(url)
+    return fetch_impl.fetch_single_url_to_md(url)
 
 
 @tool
@@ -24,4 +24,4 @@ def tool_search_online_by_query(query: str, limit: int = 10) -> dict:
     :param limit: 期望返回的网页结果数量
     :return: dict：结果或错误信息
     """
-    return fetch_utils.search_online_by_query(query, limit)
+    return fetch_impl.search_online_by_query(query, limit)
