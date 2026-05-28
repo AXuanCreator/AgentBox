@@ -31,6 +31,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
+from langchain_openrouter import ChatOpenRouter
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -46,7 +47,7 @@ dotenv_path = ".env"
 load_dotenv(dotenv_path=dotenv_path, override=True)
 console = Console()
 
-sp = """
+system_prompt = """
 你是一个运行在 AgentBox 内部的个人助理。
 工具调用风格（Tool Call Style）
 默认：对常规、低风险的工具调用不需要叙述过程（直接调用工具即可）。 只有在这些情况下才叙述：多步骤工作、复杂/困难问题、敏感操作（比如删除）、或用户明确要求时。 叙述要简短、信息密度高；别重复显而易见的步骤。 叙述用自然的人类语言，除非处在技术语境里。
@@ -146,8 +147,8 @@ class AgentBox:
         self.config = RunnableConfig(configurable={"thread_id": self.session_id})
         self.session_checkpointer = self._init_checkpointer(self.db_type)  # 会话记忆数据库，由langchain管理，可选mongodb/sqlite
         self.db_collection = self._init_db(db=self.db_type)  # 会话记忆数据库，用于手动获取特定信息
-        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)  # 主agent
-        self.summary_llm = self._build_llm_openai(os.getenv("SUMMARY_MODEL"))  # 无提示词，无记忆的总结普通llm
+        self.chat_agent = self._build_agent(self._auto_create_llm(self._env("CHAT_MODEL"), self._env("BASE_URL"), self._env("API_KEY")), self.tools, system_prompt, self.session_checkpointer)
+        self.summary_llm = self._auto_create_llm(self._env("SUMMARY_MODEL"), self._env("BASE_URL"), self._env("API_KEY"))  # 无提示词，无记忆的总结普通llm
 
         # enhance display
         self.command_completer = WordCompleter(self.agent_command, ignore_case=True, WORD=True)
@@ -317,7 +318,7 @@ class AgentBox:
             return True
 
         self.config["configurable"]["thread_id"] = selected
-        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        self.chat_agent = self._build_agent(self._auto_create_llm(self._env("CHAT_MODEL"), self._env("BASE_URL"), self._env("API_KEY")), self.tools, system_prompt, self.session_checkpointer)
         history_message = self.chat_agent.get_state(self.config).values["messages"]
         # history_summary = self._summarize_history(history_message)
         history_summary = "该功能正在维护..."  # TODO: 历史总结时长太长
@@ -344,13 +345,43 @@ class AgentBox:
     def _handle_clear(self, _user_input: str) -> bool:
         new_session = self._generate_session_id()
         self.config["configurable"]["thread_id"] = new_session
-        self.chat_agent = self._build_agent(self._build_llm_deepseek(os.getenv("CHAT_MODEL")), self.tools, sp, self.session_checkpointer)
+        self.chat_agent = self._build_agent(self._auto_create_llm(self._env("CHAT_MODEL"), self._env("BASE_URL"), self._env("API_KEY")), self.tools, system_prompt, self.session_checkpointer)
         self._print_panel(
             f"已清除上下文并创建新会话: [green]{new_session}[/green]",
             title="✅ 会话新建",
             border_style="light_slate_grey",
         )
         return True
+
+    def _auto_create_llm(self, model_name, base_url, api_key):
+        """根据model_name自动选择合适的llm创建器"""
+        if any(sub in model_name.lower() for sub in ['deepseek', 'ds']) or 'deepseek' in base_url.lower():
+            return self._build_llm_deepseek(model_name, base_url, api_key)
+        elif 'openrouter' in base_url.lower() or model_name.lower().startswith(('openrouter/',)) or 'openrouter' in base_url.lower():
+            return self._build_llm_openrouter(model_name, base_url, api_key)
+        else:
+            return self._build_llm_openai(model_name, base_url, api_key)
+
+    def _init_checkpointer(self, db: str):
+        if db == "mongodb":
+            mongodb_client = MongoClient(self._env("MONGO_SHORTMEMORY_URL"))
+            return MongoDBSaver(mongodb_client, db_name='agentbox')
+        elif db == "sqlite":
+            os.makedirs('./data', exist_ok=True)
+            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
+            return SqliteSaver(sqlite_client)
+        else:
+            raise ValueError("暂不支持其他数据库")
+
+    def _init_db(self, db: str = 'mongodb'):
+        if db == "mongodb":
+            mongodb_client = MongoClient(self._env("MONGO_SHORTMEMORY_URL"))
+            _db = mongodb_client["agentbox"]
+            return _db["checkpoints"]
+        elif db == "sqlite":
+            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
+            return sqlite_client
+        raise ValueError("暂不支持其他数据库")
 
     def run(self):
         while True:
@@ -366,27 +397,59 @@ class AgentBox:
                     style=self.command_style
                 )
             user_input = re.sub(r'\n+', '\n', user_input).strip('\n')  # 去除末尾所有换行符
-            
+
             if self._dispatch_command(user_input):
                 continue
 
             for chunk in self.chat_agent.stream(
-                    input={"messages": [{"role": "user", "content": user_input}]},
-                    config=self.config,
-                    stream_mode="values",
-                ):
-                    self._process_stream_chunk(chunk)
+                input={"messages": [{"role": "user", "content": user_input}]},
+                config=self.config,
+                stream_mode="values",
+            ):
+                self._process_stream_chunk(chunk)
 
     @staticmethod
-    def _build_llm_openai(model_name):
-        """适用于openai格式，且不带reason_content（非思考模式）的llm"""
-        return ChatOpenAI(
+    def _env(key: str, default=None, *, required=True):
+        """读取环境变量， 且未设置时直接报错，避免 str(None) 问题"""
+        val = os.getenv(key, default)
+        if required and val is None:
+            raise ValueError(f"环境变量 {key} 未设置")
+        return val
+
+    @staticmethod
+    def _build_llm_openrouter(model_name, base_url, api_key):
+        """测试方案"""
+        return ChatOpenRouter(
             model=str(model_name),
-            base_url=str(os.getenv("BASE_URL")),
-            api_key=os.getenv("API_KEY"),  # type: ignore
+            base_url=str(base_url),
+            api_key=api_key,
             temperature=0.7,
             timeout=600,
             streaming=True
+        )
+
+    @staticmethod
+    def _build_llm_openai(model_name, base_url, api_key):
+        """适用于openai格式，且不带reason_content（非思考模式）的llm"""
+        return ChatOpenAI(
+            model=str(model_name),
+            base_url=str(base_url),
+            api_key=api_key,
+            temperature=0.7,
+            timeout=600,
+            streaming=True
+        )
+
+    @staticmethod
+    def _build_llm_deepseek(model_name, base_url, api_key):
+        """适用于deepseek模型"""
+        return ChatDeepSeek(
+            model=str(model_name),
+            api_base=str(base_url),
+            api_key=api_key,
+            temperature=0.7,
+            timeout=600,
+            streaming=True,
         )
 
     @staticmethod
@@ -397,18 +460,6 @@ class AgentBox:
             system_prompt=system_prompt,
             # middleware=[self.history_summarize],
             checkpointer=checkpointer,
-        )
-
-    @staticmethod
-    def _build_llm_deepseek(model_name):
-        """适用于deepseek模型"""
-        return ChatDeepSeek(
-            model=str(model_name),
-            api_base=str(os.getenv("BASE_URL")),
-            api_key=os.getenv("API_KEY"),
-            temperature=0.7,
-            timeout=600,
-            streaming=True,
         )
 
     @staticmethod
@@ -437,29 +488,6 @@ class AgentBox:
         """检查是否为正确的sessionid"""
         pattern = r'^\d{8}-[0-9a-f]{8}$'
         return bool(re.fullmatch(pattern, session_id))
-
-    @staticmethod
-    def _init_checkpointer(db: str):
-        if db == "mongodb":
-            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
-            return MongoDBSaver(mongodb_client, db_name='agentbox')
-        elif db == "sqlite":
-            os.makedirs('./data', exist_ok=True)
-            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
-            return SqliteSaver(sqlite_client)
-        else:
-            raise ValueError("暂不支持其他数据库")
-
-    @staticmethod
-    def _init_db(db: str = 'mongodb'):
-        if db == "mongodb":
-            mongodb_client = MongoClient(str(os.getenv("MONGO_SHORTMEMORY_URL")))
-            _db = mongodb_client["agentbox"]
-            return _db["checkpoints"]
-        elif db == "sqlite":
-            sqlite_client = sqlite3.connect("./data/sqlite_checkpoints.db", check_same_thread=False)
-            return sqlite_client
-        raise ValueError("暂不支持其他数据库")
 
 
 def main(args):
