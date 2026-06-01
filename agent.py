@@ -1,10 +1,3 @@
-"""
-读取所有指定目录下的csv路径->
-对每个csv获取表头->
-获取指定平台的行数
-"""
-
-
 import sys
 import re
 import warnings
