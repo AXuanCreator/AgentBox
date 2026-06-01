@@ -51,6 +51,30 @@ AgentBox 是一个面向终端的高级 AI 助手框架，主要基于 Langchain
 | 数据处理 | pandas, openpyxl |
 | 持久化 | SQLite (默认), MongoDB (可选) |
 | 网页抓取 | Firecrawl |
+| 架构 | 模块化：config / display / session / history |
+
+---
+
+## 项目结构
+
+```
+AgentBox/
+├── agent.py                    # 主入口 + REPL 编排 (~175行)
+├── keybinding.py               # prompt_toolkit 快捷键绑定
+├── .env                        # 环境变量配置
+├── core/
+│   ├── __init__.py
+│   ├── config.py               # AppConfig 配置管理 (pydantic)
+│   ├── prompt.py               # SystemPrompts 系统提示词 (dataclass)
+│   ├── llm_builder.py          # LLM 工厂 (provider 自动检测)
+│   ├── display.py              # 终端渲染 (Rich/Plain 策略)
+│   ├── session.py              # 会话生命周期管理
+│   ├── history.py              # 历史消息格式化与摘要
+│   ├── schemas.py              # ToolResponse / ResponseCode
+│   ├── impl/                   # 业务逻辑实现
+│   └── tools/                  # @tool 工具定义
+└── data/                       # SQLite 持久化数据
+```
 
 ---
 
@@ -82,7 +106,7 @@ pip install questionary rich openpyxl prompt-toolkit firecrawl-py
 | `CHAT_MODEL` | 对话模型名称 | 是 |
 | `SUMMARY_MODEL` | 摘要模型名称 | 是 |
 | `FIRECRAWL_API_KEY` | Firecrawl API 密钥 | 网页抓取时需要 |
-| `MONGO_SHORTMEMORY_URL` | MongoDB 连接串 | 使用 MongoDB 时需要 |
+| `MONGODB_SESSION_URL` | MongoDB 连接串 | 使用 MongoDB 时需要 |
 | `LANGCHAIN_TRACING_V2` | LangSmith 追踪开关 | 否 |
 | `LANGCHAIN_API_KEY` | LangSmith API 密钥 | 否 |
 | `LANGCHAIN_PROJECT` | LangSmith 项目名称 | 否 |
