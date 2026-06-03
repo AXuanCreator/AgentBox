@@ -1,0 +1,15 @@
+{
+  "models": {
+    "base_url": "https://xxxx/v1",
+    "api_key": "sk-xxxx",
+    "main": "xxxx",
+    "summary": "xxxx",
+    "temperature": 0.7,
+    "timeout": 600
+  },
+  "options": {
+    "firecrawl_api_key": "xxxx",
+    "mongodb_session_url": "when db_type==mongodb need to be filled in",
+    "db_type": "sqlite"
+  }
+}

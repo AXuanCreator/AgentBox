@@ -22,7 +22,7 @@ class SessionManager:
 
     def _init_checkpointer(self):
         if self.db_type == "mongodb":
-            mongodb_client = MongoClient(config.mongodb_session_url)
+            mongodb_client = MongoClient(config.options.mongodb_session_url)
             return MongoDBSaver(mongodb_client, db_name='agentbox')
         elif self.db_type == "sqlite":
             os.makedirs('./data', exist_ok=True)
@@ -33,7 +33,7 @@ class SessionManager:
 
     def _init_db(self):
         if self.db_type == "mongodb":
-            mongodb_client = MongoClient(config.mongodb_session_url)
+            mongodb_client = MongoClient(config.options.mongodb_session_url)
             _db = mongodb_client["agentbox"]
             return _db["checkpoints"]
         elif self.db_type == "sqlite":

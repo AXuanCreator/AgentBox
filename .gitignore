@@ -1,3 +1,4 @@
 /*.env
 .idea
 /core/__pycache__
+/config.json

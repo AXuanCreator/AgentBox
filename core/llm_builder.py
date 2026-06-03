@@ -5,8 +5,6 @@ from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
 from langchain_openrouter import ChatOpenRouter
 
-from core.config import config
-
 _PROVIDERS = {
     "openai-compatible": lambda m, b, ak, tt, to, s: ChatOpenAI(model=m, base_url=b, api_key=ak, temperature=tt, timeout=to, streaming=s),
     "openrouter": lambda m, b, ak, tt, to, s: ChatOpenRouter(model=m, base_url=b, api_key=ak, temperature=tt, timeout=to, streaming=s),

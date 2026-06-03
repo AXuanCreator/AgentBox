@@ -24,19 +24,19 @@ class RichRenderer:
             Markdown(display_content),
             title="🤖 Agent",
             border_style="cyan",
-            expand=False,
+            expand=True,
             padding=(0, 1)
         ))
 
     def display_tool(self, tool_name: str, tool_args: dict, token_usage: dict = None, total_token: int = 0):
         """使用 rich 渲染工具调用"""
-        display_content = f"**Args**:{json.dumps(tool_args, indent=2, ensure_ascii=False)}"
-        display_content += f"\n\n*Token: {token_usage['total_tokens']}({token_usage['input_tokens']}/{token_usage['output_tokens']}) Total：{total_token}*"
+        display_content = f"[gray33]Args:{json.dumps(tool_args, indent=2, ensure_ascii=False)}"
+        display_content += f"\n\nToken: {token_usage['total_tokens']}({token_usage['input_tokens']}/{token_usage['output_tokens']}) Total：{total_token}[/gray33]"
         self.console.print(Panel(
-            Markdown(display_content),
-            title=f"🔧 Tool: {tool_name}",
-            border_style="yellow",
-            expand=False,
+            display_content,
+            title=f"Tool: {tool_name}",
+            border_style="gray33",
+            expand=True,
             padding=(0, 1)
         ))
 
