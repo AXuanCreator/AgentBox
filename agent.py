@@ -9,7 +9,7 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.styles import Style
 
 from core.session import SessionManager
-from keybinding import bindings_questionary
+from keybinding import bindings_questionary, get_help_mode
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from core.tools import ALL_TOOLS
@@ -17,7 +17,7 @@ from core.config import config
 from core.prompt import system_prompts
 from core.llm_builder import init_llm
 from core.display import init_display_renderer, process_stream_chunk
-from core.history import format_messages_to_str, summarize_history
+from core.history import format_messages_to_str
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 
@@ -33,6 +33,12 @@ class AgentBox:
             "/history": self._handle_history,
             "/clear": self._handle_clear,
             "/new": self._handle_clear,
+        }
+        self.command_descriptions = {
+            "/exit, exit": "退出CLI",
+            "/clear, /new": "新建会话",
+            "/session, /session [session_id]": "选择特定会话",
+            "/history": "查看会话历史",
         }
         self.agent_command = list(self.command_handlers.keys())  # 快捷指令（“/”）
         self.command_completer = WordCompleter(self.agent_command, ignore_case=True, WORD=True)
@@ -54,6 +60,14 @@ class AgentBox:
             if user_input == prefix or user_input.startswith(prefix + " "):
                 return handler(user_input)
         return False
+
+    def _get_toolbar(self):
+        if get_help_mode():
+            lines = []
+            for cmd, desc in self.command_descriptions.items():
+                lines.append(f"  {cmd:<10s} --{desc}")
+            return "\n".join(lines)
+        return "(ENTER 发送，CTRL+J 换行，? 显示指令面板)"
 
     def _handle_exit(self, _user_input: str) -> bool:
         self.display_renderer.print_panel(
@@ -109,10 +123,11 @@ class AgentBox:
 
     def _handle_clear(self, _user_input: str) -> bool:
         new_session = self.session_manager.generate_session_id()
+        old_session = self.agent_config["configurable"]["thread_id"]
         self.agent_config["configurable"]["thread_id"] = new_session
         self.agent_chat = self._build_agent(init_llm(config.chat_model, config.base_url, config.api_key, config.llm_temperature, config.llm_timeout), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
         self.display_renderer.print_panel(
-            f"已清除上下文并创建新会话: [green]{new_session}[/green]",
+            f"已清除上下文并创建新会话: [green]{new_session}[/green]，就会话可通过[grey50]/session {old_session}[/grey50]恢复",
             title="✅ 会话新建",
             border_style="light_slate_grey",
         )
@@ -127,7 +142,7 @@ class AgentBox:
                     ">",
                     multiline=True,
                     key_bindings=bindings_questionary,
-                    bottom_toolbar="(ENTER 发送，CTRL+J 换行)",
+                    bottom_toolbar=self._get_toolbar,
                     completer=self.command_completer,
                     style=self.command_style
                 )
