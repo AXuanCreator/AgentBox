@@ -36,3 +36,8 @@ def toggle_help(event):
         _help_mode = not _help_mode  # 反转
     else:
         buf.insert_text('?')  # 输入缓冲区无内容，正常插入?
+
+
+@bindings_questionary.add(Keys.ControlC)
+def clear_buffer(event):
+    event.app.current_buffer.reset()

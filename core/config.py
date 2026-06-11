@@ -1,7 +1,6 @@
 #!/user/bin/env python3
 # -*- coding: utf-8 -*-
 import json
-
 import questionary
 from pydantic import BaseModel
 
@@ -11,6 +10,7 @@ class ModelsConfig(BaseModel):
     api_key: str
     main: str
     summary: str
+    reasoning_effort: str | None  # None, 'minimal', 'low', 'medium', 'high', 'xhigh'，需要模型支持该参数
     temperature: float = 0.7
     timeout: int = 600
 

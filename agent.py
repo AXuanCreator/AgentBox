@@ -55,7 +55,7 @@ class AgentBox:
         self.config_manager = ConfigManager(app_config=config, renderer=self.display_renderer)
         self.agent_config = RunnableConfig(configurable={
             "thread_id": self.session_manager.generate_session_id()})  # 当前仅用于区分不同会话（session）
-        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
+        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout, config.models.reasoning_effort), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
         self.llm_summary = init_llm(config.models.summary, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout)  # 无提示词，无记忆的总结普通llm
 
     def _dispatch_command(self, user_input: str) -> bool:
@@ -71,7 +71,7 @@ class AgentBox:
             for cmd, desc in self.command_descriptions.items():
                 lines.append(f"  {cmd:<10s} --{desc}")
             return "\n".join(lines)
-        return "(ENTER 发送，CTRL+J 换行，? 显示指令面板)"
+        return "(ENTER 发送，CTRL+J 换行，CTRL+C 清空输入内容，? 显示指令面板)"
 
     def _handle_exit(self, _user_input: str) -> bool:
         self.display_renderer.print_panel(
@@ -101,7 +101,7 @@ class AgentBox:
             return True
 
         self.agent_config["configurable"]["thread_id"] = selected
-        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
+        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout, config.models.reasoning_effort), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
         history_message = self.agent_chat.get_state(self.agent_config).values["messages"]
         # history_summary = summarize_history(history_message, self.llm_summary)
         history_summary = "该功能正在维护..."  # TODO: 历史总结时长太长
@@ -129,7 +129,7 @@ class AgentBox:
         new_session = self.session_manager.generate_session_id()
         old_session = self.agent_config["configurable"]["thread_id"]
         self.agent_config["configurable"]["thread_id"] = new_session
-        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
+        self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout, config.models.reasoning_effort), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
         self.display_renderer.print_panel(
             f"已清除上下文并创建新会话: [green]{new_session}[/green]，就会话可通过[grey50]/session {old_session}[/grey50]恢复",
             title="✅ 会话新建",
@@ -148,7 +148,7 @@ class AgentBox:
                 self.display_renderer.print(f'配置{first_key}.{second_key}已更新，需要重新启动以加载新配置 | 新配置: {new_value}')
                 return True
             if first_key in ['models']:
-                self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
+                self.agent_chat = self._build_agent(init_llm(config.models.main, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout, config.models.reasoning_effort), self.tools, system_prompts.session_launch_prompt, self.session_manager.checkpointer)
                 self.llm_summary = init_llm(config.models.summary, config.models.base_url, config.models.api_key, config.models.temperature, config.models.timeout)  # 无提示词，无记忆的总结普通llm
             self.display_renderer.print(f'配置{first_key}.{second_key}已更新，热重载成功 | 新配置: {new_value}')
             return True
@@ -172,12 +172,13 @@ class AgentBox:
             if self._dispatch_command(user_input):
                 continue
 
-            for chunk in self.agent_chat.stream(
-                input={"messages": [{"role": "user", "content": user_input}]},
-                config=self.agent_config,
-                stream_mode="values",
-            ):
-                self.total_token = process_stream_chunk(chunk, self.display_renderer, self.total_token)
+            with self.display_renderer.status("Thinking...") as status_obj:
+                for chunk in self.agent_chat.stream(
+                    input={"messages": [{"role": "user", "content": user_input}]},
+                    config=self.agent_config,
+                    stream_mode="values",
+                ):
+                    self.total_token = process_stream_chunk(chunk, self.display_renderer, self.total_token, status_obj)
 
     @staticmethod
     def _build_agent(llm, tools=None, system_prompt=None, checkpointer=None):
