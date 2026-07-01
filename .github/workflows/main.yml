@@ -1,4 +1,11 @@
-- name: PyInstaller Windows
-  uses: JackMcKew/pyinstaller-action-windows@v0.1.2
-  with:
-    path: .
+name: Build Windows App
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PyInstaller Windows
+        uses: JackMcKew/pyinstaller-action-windows@v0.1.2
+        with:
+          path: .
