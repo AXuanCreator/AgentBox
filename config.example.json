@@ -4,8 +4,14 @@
     "api_key": "sk-xxxx",
     "main": "xxxx",
     "summary": "xxxx",
+    "reasoning_effort": "medium",
     "temperature": 0.7,
     "timeout": 600
+  },
+  "security": {
+    "base_url": "https://xxxx/v1",
+    "api_key": "sk-xxxx",
+    "model_fast": "xxxx"
   },
   "options": {
     "firecrawl_api_key": "xxxx",

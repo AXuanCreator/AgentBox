@@ -15,6 +15,12 @@ class ModelsConfig(BaseModel):
     timeout: int = 600
 
 
+class SecurityConfig(BaseModel):
+    base_url: str
+    api_key: str
+    model_fast: str
+
+
 class OptionsConfig(BaseModel):
     firecrawl_api_key: str
     mongodb_session_url: str | None
@@ -23,6 +29,7 @@ class OptionsConfig(BaseModel):
 
 class AppConfig(BaseModel):
     models: ModelsConfig
+    security: SecurityConfig
     options: OptionsConfig
     model_config = {"extra": "ignore"}
 

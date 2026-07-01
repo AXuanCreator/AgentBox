@@ -13,13 +13,17 @@
 
 AgentBox 是一个运行在终端里的 AI 助手框架。它将 LangChain Agent 与一套精心设计的工具系统结合起来，让 LLM 可以直接操作你本地的文件、表格、代码和网络资源。AgentBox 提供完善的多会话管理，所有对话自动持久化，随时可切回任意历史会话继续工作。
 
+### 安全机制
+
+AgentBox 在执行任何 Python 代码或 Shell 指令前，会通过独立的轻量级安全审查 LLM 对代码进行安全分类（`safe` / `unsafe` / `confirm` / `non-direct`），只有判定为安全的代码才会被自动执行。
+
 ## 核心能力
 
 <table align="center">
   <tr align="center">
     <td width="33%"><b>📊 数据表格</b><br><sub>CSV / Excel 读写、统计与排序</sub></td>
     <td width="33%"><b>🌐 网络能力</b><br><sub>网页抓取转 Markdown、在线搜索</sub></td>
-    <td width="33%"><b>⚡ 代码执行</b><br><sub>Python 与 Shell 指令执行</sub></td>
+    <td width="33%"><b>⚡ 代码执行</b><br><sub>Python 与 Shell 指令执行（含安全审查）</sub></td>
   </tr>
   <tr align="center">
     <td><b>📁 文件操作</b><br><sub>文件读写、存在性检查、目录查询</sub></td>
@@ -39,7 +43,7 @@ AgentBox 是一个运行在终端里的 AI 助手框架。它将 LangChain Agent
 
 ```bash
 # 核心框架
-pip install langchain langchain-openai langchain-deepseek langchain-openrouter langchain-community langchain-classic langgraph
+pip install langchain langchain-openai langchain-deepseek langchain-community langchain-classic langgraph
 # 数据处理
 pip install pandas openpyxl
 # 终端 UI
@@ -61,25 +65,52 @@ pip install pymongo firecrawl-py python-dotenv
     "api_key": "sk-xxxx",
     "main": "gpt-4o",
     "summary": "gpt-4o-mini",
+    "reasoning_effort": "medium",
     "temperature": 0.7,
     "timeout": 600
   },
+  "security": {
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "sk-xxxx",
+    "model_fast": "gpt-4o-mini"
+  },
   "options": {
     "firecrawl_api_key": "fc-xxxx",
-    "db_type": "sqlite"
+    "db_type": "sqlite",
+    "mongodb_session_url": null
   }
 }
 ```
 
+| 配置项 | 说明 |
+|---|---|
+| `models.base_url` | LLM API 地址 |
+| `models.api_key` | LLM API 密钥 |
+| `models.main` | 主 Agent 模型 |
+| `models.summary` | 摘要模型 |
+| `models.reasoning_effort` | 推理强度：`minimal` / `low` / `medium` / `high` / `xhigh` |
+| `models.temperature` | 生成温度（0-2） |
+| `models.timeout` | 请求超时秒数 |
+| `security.base_url` | 安全审查 LLM 的 API 地址 |
+| `security.api_key` | 安全审查 LLM 的 API 密钥 |
+| `security.model_fast` | 安全审查模型（建议使用轻量快速模型） |
+| `options.firecrawl_api_key` | Firecrawl API 密钥（网页抓取与搜索） |
+| `options.db_type` | 数据库类型：`sqlite` 或 `mongodb` |
+| `options.mongodb_session_url` | MongoDB 连接 URL（仅 `db_type=mongodb` 时需要） |
+
+支持通过 `.env` 文件设置环境变量（自动加载 `python-dotenv`），可配置 LangSmith 追踪（`LANGCHAIN_TRACING_V2`、`LANGCHAIN_PROJECT`）等。
+
 ### 运行
 
 ```bash
-# 正常模式（Rich 终端 UI）
+# 正常模式（Rich 终端 UI，自动检测 TTY）
 python agent.py
 
 # 调试模式（纯文本输出，适合 IDE 内置终端）
 python agent.py --debug
 ```
+
+> 当 `sys.stdout.isatty()` 为 `False`（如管道或部分 IDE 终端）时，AgentBox 会自动降级到纯文本模式。
 
 ## 项目结构
 
@@ -91,25 +122,27 @@ AgentBox/
 ├── config.example.json          # 配置模板
 ├── core/
 │   ├── config.py                # AppConfig 配置模型 + ConfigManager 运行时编辑
-│   ├── llm_builder.py           # LLM 工厂（自动检测 provider）
-│   ├── prompt.py                # 系统提示词
-│   ├── display.py               # 终端渲染（Rich / Plain 双策略）
+│   ├── llm_builder.py           # LLM 工厂（自动检测 provider，支持 reasoning_effort）
+│   ├── prompt.py                # 系统提示词 + 安全审查提示词
+│   ├── display.py               # RichRenderer / PlainRenderer 双策略终端渲染
 │   ├── session.py               # 会话生命周期管理（SQLite / MongoDB）
 │   ├── history.py               # 历史消息格式化与摘要
-│   ├── schemas.py               # ToolResponse / ResponseCode 统一响应模型
-│   ├── agent_builder.py         # Agent 构建辅助
-│   ├── impl/                    # 工具实现层
-│   │   ├── sheet_impl.py        # 表格操作实现
-│   │   ├── fetch_impl.py        # 网络抓取与搜索实现
-│   │   ├── env_impl.py          # 文件/Shell/Python 系统操作实现
-│   │   └── runtime_impl.py      # 运行时工具实现（历史获取等）
-│   └── tools/                   # @tool 工具定义层（LangChain tool 装饰器）
-│       ├── sheet_tools.py
-│       ├── fetch_tools.py
-│       ├── env_tools.py
-│       └── runtime_tools.py
+│   ├── schemas.py               # ResponseCode 枚举 + ToolResponse 统一响应模型
+│   ├── tools/
+│   │   ├── __init__.py          # 工具自动发现（按 @tool 装饰器收集）
+│   │   ├── sheet_tools.py       # 表格工具
+│   │   ├── fetch_tools.py       # 网络工具
+│   │   ├── env_tools.py         # 系统工具
+│   │   └── runtime_tools.py     # 运行时工具
+│   └── impl/
+│       ├── sheet_impl.py        # 表格操作实现
+│       ├── fetch_impl.py        # 网络抓取与搜索实现
+│       ├── env_impl.py          # 文件/Shell/Python 执行 + 安全审查
+│       └── runtime_impl.py      # 运行时工具实现（历史获取等）
 └── data/                        # SQLite 持久化数据
 ```
+
+> 工具通过 `core/tools/__init__.py` 自动发现所有带 `@tool` 装饰器的函数，新增工具只需在 `core/tools/` 下定义即可，无需手动注册。
 
 ## 可用工具
 
@@ -138,8 +171,8 @@ AgentBox/
 | 工具 | 说明 |
 |---|---|
 | `tool_get_system_plat` | 获取系统平台信息 |
-| `tool_python_executor` | 执行 Python 代码并捕获输出 |
-| `tool_shell_executor` | 执行 Shell 指令并捕获输出 |
+| `tool_python_executor` | 执行 Python 代码（含安全审查） |
+| `tool_shell_executor` | 执行 Shell 指令（含安全审查，120s 超时） |
 | `tool_file_read_text` | 读取文本文件内容 |
 | `tool_file_write_text` | 写入文本文件（覆盖/追加） |
 | `tool_file_exists` | 检查文件是否存在 |
@@ -162,7 +195,7 @@ AgentBox/
 | `/session <id>` | 直接切换到指定会话 |
 | `/history` | 查看当前会话历史消息 |
 | `/clear` `/new` | 新建会话（旧会话保留） |
-| `/config` | 运行时查看与编辑配置（支持热重载） |
+| `/config` | 运行时查看与编辑配置（models 变更热重载，db/mongodb 变更需重启） |
 
 ## 调试模式
 

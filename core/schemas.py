@@ -10,6 +10,7 @@ _constructing = False
 
 class ResponseCode(str, Enum):
     SUCCESS = "SUCCESS"
+    WARNING = "WARNING"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"  # 文件不存在
     INVALID_FORMAT = "INVALID_FORMAT"  # 格式错误
     HEADER_ERROR = "HEADER_ERROR"  # 表头错误
@@ -19,6 +20,7 @@ class ResponseCode(str, Enum):
     HISTORY_ERROR = "HISTORY_ERROR"  # 历史消息型错误
     WRITE_ERROR = "WRITE_ERROR"  # 写入错误
     GENERIC_ERROR = "GENERIC_ERROR"  # 通常错误
+    SECURITY_ERROR = "SECURITY_ERROR" # 安全性错误
 
 
 class ToolResponse(BaseModel):

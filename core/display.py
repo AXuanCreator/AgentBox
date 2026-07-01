@@ -32,6 +32,9 @@ class RichRenderer:
             elif cb['type'] == 'text':
                 renderables.append(Markdown(cb['text']))
 
+        if not renderables:
+            return
+
         if token_usage:
             renderables.append(Text(f"Token: {token_usage['total_tokens']}({token_usage['input_tokens']}/{token_usage['output_tokens']}) Total：{total_token}", style="gray42"))
 

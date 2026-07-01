@@ -2,3 +2,4 @@
 .idea
 /core/__pycache__
 /config.json
+/temp
