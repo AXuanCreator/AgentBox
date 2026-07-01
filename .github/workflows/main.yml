@@ -1,11 +1,20 @@
 name: Build Windows App
+
 on: workflow_dispatch
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: PyInstaller Windows
-        uses: JackMcKew/pyinstaller-action-windows@v0.1.2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: .
+          python-version: '3.x'
+      
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: pyinstaller agent.py
