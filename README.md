@@ -1,16 +1,21 @@
 <div align="center">
-    <h1>Aidgent</h1>
+    <h1>AIDGENT</h1>
     <p><strong>一个具备安全感知代码执行与多会话管理能力的模块化个人助理智能体</strong></p>
 </div>
 
 <div align="center">
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Framework: LangChain](https://img.shields.io/badge/framework-LangChain-green?logo=langchain)](https://www.langchain.com/)
-[![Framework: LangGraph](https://img.shields.io/badge/framework-LangGraph-orange?logo=langgraph)](https://langchain-ai.github.io/langgraph/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/license/apache-2-0/)
-![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)
-
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  </a>
+  <a href="https://www.langchain.com/">
+    <img src="https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white" alt="LangChain">
+  </a>
+  <a href="https://langchain-ai.github.io/langgraph/">
+    <img src="https://img.shields.io/badge/LangGraph-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white" alt="LangGraph">
+  </a>
 </div>
+
+
 
 <p align="center">
   <a href="#摘要">摘要</a> •
@@ -21,8 +26,6 @@
   <a href="#安全机制">安全机制</a> •
   <a href="#交互命令">交互命令</a> 
 </p>
-
-
 ---
 
 ## 摘要
@@ -213,5 +216,4 @@ Aidgent 采用一套新颖的基于 LLM 的代码审查流水线，以降低自�
 | `/config` | 交互式查看和编辑配置（模型变更热重载） |
 
 ---
-
 
