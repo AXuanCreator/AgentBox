@@ -1,49 +1,86 @@
-# 🤖 AgentBox
+<div align="center">
+    <h1>Aidgent</h1>
+    <p><strong>一个具备安全感知代码执行与多会话管理能力的模块化个人助理智能体</strong></p>
+</div>
 
-**基于 LangChain 的模块化个人助理 Agent——在终端中完成表格处理、网页抓取、代码执行、文件操作与多会话管理。**
+<div align="center">
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Framework: LangChain](https://img.shields.io/badge/framework-LangChain-green?logo=langchain)](https://www.langchain.com/)
+[![Framework: LangGraph](https://img.shields.io/badge/framework-LangGraph-orange?logo=langgraph)](https://langchain-ai.github.io/langgraph/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/license/apache-2-0/)
+![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)
 
-<p align="left">
-  <img src="https://img.shields.io/badge/python-3.10+-blue?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/framework-LangChain-green?logo=langchain" alt="LangChain">
+</div>
+
+<p align="center">
+  <a href="#摘要">摘要</a> •
+  <a href="#特性">特性</a> •
+  <a href="#系统架构">系统架构</a> •
+  <a href="#快速开始">快速开始</a> •
+  <a href="#工具系统">工具系统</a> •
+  <a href="#安全机制">安全机制</a> •
+  <a href="#交互命令">交互命令</a> 
 </p>
+
 
 ---
 
-## 是什么
+## 摘要
 
-AgentBox 是一个运行在终端里的 AI 助手框架。它将 LangChain Agent 与一套精心设计的工具系统结合起来，让 LLM 可以直接操作你本地的文件、表格、代码和网络资源。AgentBox 提供完善的多会话管理，所有对话自动持久化，随时可切回任意历史会话继续工作。
+Aidgent 是一个开源的、基于大语言模型（LLM）的自主智能体框架，运行于终端环境之中。它将 LangChain/LangGraph 的智能体运行时与一套精心设计的工具系统相结合，使 LLM 能够直接操作本地文件、电子表格、代码执行环境以及网络资源。Aidgent 提供了双模式渲染引擎（Rich TTY 与纯文本）、热重载配置系统，以及支持 SQLite 和 MongoDB 两种后端的持久化多会话管理层。
 
-### 安全机制
+---
 
-AgentBox 在执行任何 Python 代码或 Shell 指令前，会通过独立的轻量级安全审查 LLM 对代码进行安全分类（`safe` / `unsafe` / `confirm` / `non-direct`），只有判定为安全的代码才会被自动执行。
+## 特性
 
-## 核心能力
+### 自主性
 
-<table align="center">
-  <tr align="center">
-    <td width="33%"><b>📊 数据表格</b><br><sub>CSV / Excel 读写、统计与排序</sub></td>
-    <td width="33%"><b>🌐 网络能力</b><br><sub>网页抓取转 Markdown、在线搜索</sub></td>
-    <td width="33%"><b>⚡ 代码执行</b><br><sub>Python 与 Shell 指令执行（含安全审查）</sub></td>
-  </tr>
-  <tr align="center">
-    <td><b>📁 文件操作</b><br><sub>文件读写、存在性检查、目录查询</sub></td>
-    <td><b>💬 会话管理</b><br><sub>多会话持久化、历史切换、摘要</sub></td>
-    <td><b>⚙️ 运行时配置</b><br><sub>终端内实时编辑、参数热重载</sub></td>
-  </tr>
-</table>
+Aidgent 能够通过对可用工具的推理，自主分解并执行复杂任务。智能体从网络抓取到数据分析再到文件操作，自动选择合适的工具链，无需人工干预即可完成常规操作。
+
+### 安全感知执行
+每一次 Python 和 Shell 执行均通过专用安全审查 LLM 进行分类。`unsafe` 操作被直接阻止，`confirm` 操作需经用户明确批准，`non-direct` 操作则被标记以供进一步审查。
+
+### 多会话持久化
+所有智能体会话通过 LangGraph 的检查点机制自动持久化。用户可在历史会话间切换、回顾过往交互，并在任意时刻恢复工作。
+
+### 双模式终端渲染
+基于策略模式的渲染层，根据运行环境自动选择 Rich TTY 输出或纯文本调试输出，确保在原生终端和 IDE 集成控制台中均可正常使用。
+
+### 运行时配置
+包括 LLM 端点、模型选择和执行选项在内的配置参数，可在终端内交互式查看和编辑。模型相关变更通过热重载即时生效，无需重启。
+
+---
+
+## 系统架构
+
+Aidgent 采用分层架构，各层职责明确：
+
+| 层级 | 组件 | 职责 |
+|---|---|---|
+| **编排层** | `agent.py` | REPL 循环、指令分发、流式处理 |
+| **智能体运行时** | LangGraph `create_agent` | 工具使用循环、基于检查点的状态持久化 |
+| **工具系统** | `core/tools/` | 自动发现的 `@tool` 函数；当前共 14 个工具，分属 4 个类别 |
+| **实现层** | `core/impl/` | 纯业务逻辑：表格操作、网页抓取、代码执行、文件 I/O |
+| **安全层** | `core/security.py` | 基于 LLM 的安全审查与人在回路确认机制 |
+| **会话层** | `core/session.py` | SQLite/MongoDB 双后端会话管理与检查点维护 |
+| **显示层** | `core/display.py` | 双策略渲染：`RichRenderer`（TTY）/ `PlainRenderer`（调试） |
+| **配置层** | `core/config.py` | Pydantic 验证的配置模型，支持交互式编辑与热重载 |
+
+智能体在标准 LangGraph `create_agent` 循环中运行：LLM 接收系统提示词与会话历史，输出文本响应或工具调用指令，工具执行结果反馈到循环中，如此反复直至任务完成。
+
+---
 
 ## 快速开始
 
 ### 环境要求
 
 - Python 3.10+
-- （可选）MongoDB 实例
-
-### 安装
+- 兼容的 LLM API 端点（OpenAI 兼容或 DeepSeek）
+- （可选）Firecrawl API 密钥，用于网页抓取与搜索
 
 ```bash
-# 核心框架
-pip install langchain langchain-openai langchain-deepseek langchain-community langchain-classic langgraph
+# 核心智能体框架
+pip install langchain langchain-openai langchain-deepseek langchain-community langgraph
 # 数据处理
 pip install pandas openpyxl
 # 终端 UI
@@ -52,11 +89,9 @@ pip install rich prompt-toolkit questionary
 pip install pymongo firecrawl-py python-dotenv
 ```
 
-> **注意**：`langchain-deepseek` v1.0.1 的 `_get_request_payload` 方法需按 [langchain-ai/langchain#37174](https://github.com/langchain-ai/langchain/issues/37174) 调整，否则会导致 `Missing reasoning_content` 错误。
-
 ### 配置
 
-复制 `config.example.json` 为 `config.json` 并填入你的信息：
+复制 `config.example.json` 为 `config.json` 并填入您的凭证信息：
 
 ```json
 {
@@ -82,99 +117,61 @@ pip install pymongo firecrawl-py python-dotenv
 }
 ```
 
-| 配置项 | 说明 |
+| 参数 | 说明 |
 |---|---|
-| `models.base_url` | LLM API 地址 |
-| `models.api_key` | LLM API 密钥 |
-| `models.main` | 主 Agent 模型 |
-| `models.summary` | 摘要模型 |
-| `models.reasoning_effort` | 推理强度：`minimal` / `low` / `medium` / `high` / `xhigh` |
-| `models.temperature` | 生成温度（0-2） |
-| `models.timeout` | 请求超时秒数 |
-| `security.base_url` | 安全审查 LLM 的 API 地址 |
-| `security.api_key` | 安全审查 LLM 的 API 密钥 |
-| `security.model_fast` | 安全审查模型（建议使用轻量快速模型） |
-| `options.firecrawl_api_key` | Firecrawl API 密钥（网页抓取与搜索） |
-| `options.db_type` | 数据库类型：`sqlite` 或 `mongodb` |
-| `options.mongodb_session_url` | MongoDB 连接 URL（仅 `db_type=mongodb` 时需要） |
-
-支持通过 `.env` 文件设置环境变量（自动加载 `python-dotenv`），可配置 LangSmith 追踪（`LANGCHAIN_TRACING_V2`、`LANGCHAIN_PROJECT`）等。
+| `models.base_url` | LLM API 端点地址 |
+| `models.api_key` | API 认证密钥 |
+| `models.main` | 主智能体模型 |
+| `models.summary` | 会话摘要轻量模型 |
+| `models.reasoning_effort` | 推理深度：`minimal` / `low` / `medium` / `high` / `xhigh` |
+| `security.model_fast` | 安全审查轻量模型（延迟敏感） |
+| `options.db_type` | 会话存储后端：`sqlite` 或 `mongodb` |
+| `options.firecrawl_api_key` | Firecrawl API 密钥，用于网页抓取与搜索 |
 
 ### 运行
 
 ```bash
-# 正常模式（Rich 终端 UI，自动检测 TTY）
+# 正常模式（Rich 终端 UI）
 python agent.py
 
-# 调试模式（纯文本输出，适合 IDE 内置终端）
+# 调试模式（纯文本输出，适用于 IDE 内置终端）
 python agent.py --debug
 ```
 
-> 当 `sys.stdout.isatty()` 为 `False`（如管道或部分 IDE 终端）时，AgentBox 会自动降级到纯文本模式。
+---
 
-## 项目结构
+## 工具系统
 
-```
-AgentBox/
-├── agent.py                     # 主入口，REPL 编排
-├── keybinding.py                # prompt_toolkit 快捷键绑定
-├── config.json                  # 运行时配置文件
-├── config.example.json          # 配置模板
-├── core/
-│   ├── config.py                # AppConfig 配置模型 + ConfigManager 运行时编辑
-│   ├── llm_builder.py           # LLM 工厂（自动检测 provider，支持 reasoning_effort）
-│   ├── prompt.py                # 系统提示词 + 安全审查提示词
-│   ├── display.py               # RichRenderer / PlainRenderer 双策略终端渲染
-│   ├── session.py               # 会话生命周期管理（SQLite / MongoDB）
-│   ├── history.py               # 历史消息格式化与摘要
-│   ├── schemas.py               # ResponseCode 枚举 + ToolResponse 统一响应模型
-│   ├── tools/
-│   │   ├── __init__.py          # 工具自动发现（按 @tool 装饰器收集）
-│   │   ├── sheet_tools.py       # 表格工具
-│   │   ├── fetch_tools.py       # 网络工具
-│   │   ├── env_tools.py         # 系统工具
-│   │   └── runtime_tools.py     # 运行时工具
-│   └── impl/
-│       ├── sheet_impl.py        # 表格操作实现
-│       ├── fetch_impl.py        # 网络抓取与搜索实现
-│       ├── env_impl.py          # 文件/Shell/Python 执行 + 安全审查
-│       └── runtime_impl.py      # 运行时工具实现（历史获取等）
-└── data/                        # SQLite 持久化数据
-```
-
-> 工具通过 `core/tools/__init__.py` 自动发现所有带 `@tool` 装饰器的函数，新增工具只需在 `core/tools/` 下定义即可，无需手动注册。
-
-## 可用工具
+Aidgent 提供 14 个内置工具，分为四个类别。所有工具遵循统一的响应模式（`ToolResponse`），使用标准化状态码。
 
 ### 表格工具
 
 | 工具 | 说明 |
 |---|---|
-| `tool_get_csv_excel_path` | 扫描目录下的 CSV / Excel 文件 |
-| `tool_get_columns` | 获取表格表头 |
-| `tool_get_columns_content` | 获取指定列的全部内容 |
-| `tool_get_row_content` | 获取行内容（支持范围查询与排序） |
-| `tool_count_value_in_column` | 统计列中指定值的出现次数 |
-| `tool_count_data_rows` | 统计有效数据行数 |
+| `tool_get_csv_excel_path` | 扫描目录下所有 CSV/Excel 文件 |
+| `tool_get_columns` | 获取表头信息 |
+| `tool_get_columns_content` | 提取指定列的全部内容 |
+| `tool_get_row_content` | 获取行内容，支持范围查询与排序 |
+| `tool_count_value_in_column` | 统计某列中指定值的出现次数 |
+| `tool_count_data_rows` | 统计数据行数（不含表头） |
 | `tool_calculate_add` | 数值列表求和 |
-| `tool_write_to_table` | 写入或追加数据到 CSV / Excel |
+| `tool_write_to_table` | 写入或追加数据到 CSV/Excel |
 
 ### 网络工具
 
 | 工具 | 说明 |
 |---|---|
-| `tool_fetch_single_url_to_md` | 抓取网页转为 Markdown |
-| `tool_search_online_by_query` | 在线搜索查询 |
+| `tool_fetch_single_url_to_md` | 抓取单个网页并转换为 Markdown |
+| `tool_search_online_by_query` | 在线搜索查询并返回结构化结果 |
 
 ### 系统工具
 
 | 工具 | 说明 |
 |---|---|
-| `tool_get_system_plat` | 获取系统平台信息 |
+| `tool_get_system_plat` | 获取宿主机操作系统平台 |
 | `tool_python_executor` | 执行 Python 代码（含安全审查） |
 | `tool_shell_executor` | 执行 Shell 指令（含安全审查，120s 超时） |
 | `tool_file_read_text` | 读取文本文件内容 |
-| `tool_file_write_text` | 写入文本文件（覆盖/追加） |
 | `tool_file_exists` | 检查文件是否存在 |
 | `tool_dir_exists` | 检查目录是否存在 |
 | `tool_get_working_dir` | 获取当前工作目录 |
@@ -183,20 +180,38 @@ AgentBox/
 
 | 工具 | 说明 |
 |---|---|
-| `tool_get_history` | 获取当前会话的全部历史消息 |
+| `tool_get_history` | 获取当前会话的完整消息历史 |
+
+---
+
+## 安全机制
+
+Aidgent 采用一套新颖的基于 LLM 的代码审查流水线，以降低自动化代码执行中固有的安全风险：
+
+1. **分类**：执行前，轻量级安全审查 LLM 对代码/指令进行评估，输出四种标签之一：
+   - `safe` — 无副作用，只读操作，纯计算
+   - `unsafe` — 明显的恶意或破坏性行为；执行被拒绝
+   - `confirm` — 潜在风险（文件写入、网络调用等）；需人工确认
+   - `non-direct` — 通过外部脚本间接执行；智能体被指示获取并审查实际代码
+
+2. **人在回路**：对于归类为 `confirm` 的操作，系统向用户呈现交互式选择器（"是"、"否"或"提供更多信息"），待确认后方可执行。
+
+3. **可审计性**：每次执行均在响应元数据中标注其安全分类，便于对所有代码执行事件进行事后审查。
+
+---
 
 ## 交互命令
 
 | 命令 | 说明 |
 |---|---|
-| `?` | 切换指令面板显示 |
-| `exit` | 退出并保存当前会话 |
-| `/session` | 打开会话选择器（最近5个 + 按日期分组） |
+| `?` | 切换指令帮助面板 |
+| `exit` | 退出并持久化当前会话 |
+| `/session` | 打开会话选择器（最近 5 个 + 按日期分组） |
 | `/session <id>` | 直接切换到指定会话 |
 | `/history` | 查看当前会话历史消息 |
-| `/clear` `/new` | 新建会话（旧会话保留） |
-| `/config` | 运行时查看与编辑配置（models 变更热重载，db/mongodb 变更需重启） |
+| `/clear` / `/new` | 创建新会话（旧会话保留） |
+| `/config` | 交互式查看和编辑配置（模型变更热重载） |
 
-## 调试模式
+---
 
-使用 `--debug` 启动后，AgentBox 绕过 Rich 渲染，使用普通 `print` 输出，兼容 PyCharm、VS Code 等 IDE 内置终端。
+
