@@ -47,7 +47,7 @@ def tool_file_read_text(path: str) -> dict:
     return env_impl.file_read_text(path)
 
 
-@tool
+# @tool  outdated: 使用执行器写入以得到安全审查
 def tool_file_write_text(path: str, content: str, write_mode: str) -> dict:
     """
     文件写入工具，要求提供写入类型（覆盖、追加）

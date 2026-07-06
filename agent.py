@@ -7,17 +7,18 @@ from collections.abc import Callable
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.styles import Style
-
-from core.session import SessionManager
 from keybinding import bindings_questionary, get_help_mode
 from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
+
+from core.session import SessionManager
 from core.tools import ALL_TOOLS
 from core.config import config, ConfigManager
 from core.prompt import system_prompts
 from core.llm_builder import init_llm
 from core.display import init_display_renderer, process_stream_chunk
 from core.history import format_messages_to_str
+from core.security import security_reviewer
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 
@@ -51,6 +52,8 @@ class AgentBox:
         ])
         self.total_token = 0
         self.display_renderer = init_display_renderer(debug=self.debug)
+        # set_display_renderer(self.display_renderer)  # 初始化env_impl中的输出渲染器
+        security_reviewer.set_display_renderer(self.display_renderer)
         self.session_manager = SessionManager(renderer=self.display_renderer, db_type=config.options.db_type)
         self.config_manager = ConfigManager(app_config=config, renderer=self.display_renderer)
         self.agent_config = RunnableConfig(configurable={
@@ -173,6 +176,9 @@ class AgentBox:
                 continue
 
             with self.display_renderer.status("Thinking...") as status_obj:
+                # set_status_obj(status_obj)  # 初始化env_impl的status控制器
+                security_reviewer.set_status_obj(status_obj)
+
                 for chunk in self.agent_chat.stream(
                     input={"messages": [{"role": "user", "content": user_input}]},
                     config=self.agent_config,

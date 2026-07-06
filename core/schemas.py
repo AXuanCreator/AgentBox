@@ -11,6 +11,7 @@ _constructing = False
 class ResponseCode(str, Enum):
     SUCCESS = "SUCCESS"
     WARNING = "WARNING"
+    INFO = "INFO"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"  # 文件不存在
     INVALID_FORMAT = "INVALID_FORMAT"  # 格式错误
     HEADER_ERROR = "HEADER_ERROR"  # 表头错误

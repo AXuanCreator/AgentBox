@@ -3,38 +3,18 @@
 import subprocess
 import textwrap
 import platform
-
 from pathlib import Path
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
 
 from core.schemas import ResponseCode, ToolResponse
-from core.llm_builder import init_llm
-from core.config import config
-from core.prompt import system_prompts
-
-security_reviewer_fast = init_llm(config.security.model_fast, config.security.base_url, config.security.api_key)
-security_prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompts.security_prompt),
-    ("human", "{messages_str}")
-])
-security_chain = security_prompt | security_reviewer_fast | StrOutputParser()
-
-
-def _security_check(content):
-    """使用llm对指令进行安全审查"""
-    response = security_chain.invoke({'messages_str': content})
-    return response
+from core.security import security_reviewer
 
 
 def _security_code_process(security_code: str, content: str):
     """对返回的security_code进行处理"""
     if security_code == "unsafe":
         return ToolResponse(success=False, code=ResponseCode.SECURITY_ERROR, message=f"该指令会危及系统安全，不允许执行", data=None).model_dump()
-    elif security_code == "confirm":
-        return ToolResponse(success=False, code=ResponseCode.WARNING, message=f"用户需确认指令是否可执行，此功能还在开发", data=None).model_dump()  # todo: 用户确认逻辑
-    elif security_code == "auto-confirm":
-        return ToolResponse(success=False, code=ResponseCode.WARNING, message="当前输入为间接执行指令，无法直接审查。请先调用文件读取工具获取该文件的实际代码内容，然后将读取到的代码内容直接传入本工具进行安全审查", data=content).model_dump()
+    elif security_code == "non-direct":
+        return ToolResponse(success=False, code=ResponseCode.WARNING, message="当前执行内容为间接执行指令，无法直接审查执行内容安全性，请先调用文件读取工具获取该文件的实际内容，然后将读取到的实际内容直接使用执行器执行", data=f"指令/代码内容:{content}").model_dump()
     return ToolResponse(success=False, code=ResponseCode.SECURITY_ERROR, message=f"安全审查发生错误：审查机制返回非法内容", data=security_code).model_dump()
 
 
@@ -46,11 +26,15 @@ def get_system_plat() -> dict:
 
 def python_executor(code: str) -> dict:
     try:
-        security_code = _security_check(code).strip().lower()
-        if security_code != "safe":
+        security_code = security_reviewer.security_check(code).strip().lower()
+        if security_code == "confirm":
+            confirm_response = security_reviewer.security_confirm_selector(code).strip().lower()
+            if confirm_response == "no":
+                return ToolResponse(success=False, code=ResponseCode.SECURITY_ERROR, message=f"该指令被用户主动拒绝，终止执行", data=None).model_dump()
+            elif confirm_response != "no" and confirm_response != "yes":
+                return ToolResponse(success=False, code=ResponseCode.INFO, message=f"用户对该执行内容提供了新的信息，根据新的信息调用新方案", data=f"原代码：{code}\n用户提供信息：{confirm_response}").model_dump()
+        elif security_code != "safe":
             return _security_code_process(security_code, code)
-
-        return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"执行代码成功", data=f"security_code: {security_code}").model_dump()
 
         result = subprocess.run(
             ["python", "-c", textwrap.dedent(code)],
@@ -58,18 +42,23 @@ def python_executor(code: str) -> dict:
             encoding="utf-8",
             errors="replace",
         )
-        return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"执行代码成功", data=(result.stdout or result.stderr) + f"security_code: {security_code}").model_dump()
+        return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"执行代码成功", data=(
+                                                                                                           result.stdout or result.stderr) + f"security_code: {security_code}").model_dump()
     except Exception as e:
         return ToolResponse(success=False, code=ResponseCode.GENERIC_ERROR, message=f"错误：{e}", data=None).model_dump()
 
 
 def shell_executor(cmd: str) -> dict:
     try:
-        security_code = _security_check(cmd).strip().lower()
-        if security_code != "safe":
+        security_code = security_reviewer.security_check(cmd).strip().lower()
+        if security_code == "confirm":
+            confirm_response = security_reviewer.security_confirm_selector(cmd).strip().lower()
+            if confirm_response == "no":
+                return ToolResponse(success=False, code=ResponseCode.SECURITY_ERROR, message=f"该指令被用户主动拒绝，终止执行", data=None).model_dump()
+            elif confirm_response != "no" and confirm_response != "yes":
+                return ToolResponse(success=False, code=ResponseCode.INFO, message=f"用户对该执行内容提供了新的信息", data=f"原代码：{cmd}\n用户提供信息：{confirm_response}").model_dump()
+        elif security_code != "safe":
             return _security_code_process(security_code, cmd)
-
-        return ToolResponse(success=True, code=ResponseCode.SUCCESS, message=f"执行代码成功", data=f"security_code: {security_code}").model_dump()
 
         result = subprocess.run(
             cmd.strip(),

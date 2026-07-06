@@ -11,6 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+
 class RichRenderer:
     def __init__(self):
         self.console = Console()
