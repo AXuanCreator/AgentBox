@@ -7,20 +7,62 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
-      
-      - name: Install PyInstaller
-        run: pip install pyinstaller
-      
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install prompt_toolkit rich questionary pydantic pymongo pandas
+          pip install langchain langchain-core langchain-openai langchain-deepseek
+          pip install langchain-openrouter langgraph
+          pip install langgraph-checkpoint-sqlite langgraph-checkpoint-mongodb
+          pip install firecrawl numpy openpyxl
+
       - name: Build with PyInstaller
-        run: pyinstaller agent.py
-      
+        run: |
+          pyinstaller `
+            --noconfirm --clean --onedir `
+            --name AgentBox `
+            --paths . `
+            --collect-all rich `
+            --collect-all prompt_toolkit `
+            --collect-all questionary `
+            --collect-all pydantic `
+            --collect-all pymongo `
+            --collect-all pandas `
+            --collect-all numpy `
+            --collect-all langchain `
+            --collect-all langchain_core `
+            --collect-all langchain_openai `
+            --collect-all langchain_deepseek `
+            --collect-all langchain_openrouter `
+            --collect-all langgraph `
+            --collect-all langgraph_checkpoint_sqlite `
+            --collect-all langgraph_checkpoint_mongodb `
+            --collect-all firecrawl `
+            --collect-all openpyxl `
+            --copy-metadata rich `
+            --copy-metadata prompt_toolkit `
+            --copy-metadata pydantic `
+            --copy-metadata langchain `
+            --copy-metadata langchain-core `
+            --copy-metadata langgraph `
+            --copy-metadata langgraph-checkpoint-sqlite `
+            --copy-metadata langgraph-checkpoint-mongodb `
+            --hidden-import langgraph.checkpoint.sqlite `
+            --hidden-import langgraph.checkpoint.mongodb `
+            agent.py
+
+      - name: Test built executable
+        run: ./dist/AgentBox/AgentBox.exe --help
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: dist/
+          name: AgentBox-windows
+          path: dist/AgentBox/
